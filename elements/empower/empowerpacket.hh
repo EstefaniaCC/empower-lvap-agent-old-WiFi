@@ -73,6 +73,10 @@ enum empower_packet_types {
     EMPOWER_PT_BUSYNESS_REQUEST = 0x36,			// ac -> wtp
     EMPOWER_PT_BUSYNESS_RESPONSE = 0x37,		// wtp -> ac
 
+    // Multicast address transmission policies
+    EMPOWER_PT_INCOM_MCAST_REQUEST = 0x38,		// wtp -> ac
+    EMPOWER_PT_INCOM_MCAST_RESPONSE = 0x39,		// ac -> wtp
+
 };
 
 /* header format, common to all messages */
@@ -702,6 +706,27 @@ public:
     void set_ssid(String ssid)             { memcpy(&_ssid, ssid.data(), ssid.length()); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
+/* incomming multicast address request format */
+struct empower_incom_mcast_addr : public empower_header {
+  private:
+    uint8_t  _wtp[6]; 			/* EtherAddress */
+    uint8_t  _mcast_addr[6]; 	/* EtherAddress */
+    uint8_t  _iface;			/* OVS interface name (String) */
+  public:
+    void set_mcast_addr(EtherAddress mcast_addr) 	{ memcpy(_mcast_addr, mcast_addr.data(), 6); }
+    void set_wtp(EtherAddress wtp)   				{ memcpy(_wtp, wtp.data(), 6); }
+    void set_iface(int iface)         				{ _iface = iface; }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
+/* incomming multicast address response format */
+struct empower_incom_mcast_addr_response : public empower_header {
+  private:
+    uint8_t  _mcast_addr[6]; 	/* EtherAddress */
+    uint8_t  _iface;			/* OVS interface name (String) */
+  public:
+    EtherAddress mcast_addr() 	{ return EtherAddress(_mcast_addr); }
+    uint8_t iface()     		{ return _iface; }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
 
 CLICK_ENDDECLS
 #endif /* CLICK_EMPOWERPACKET_HH */

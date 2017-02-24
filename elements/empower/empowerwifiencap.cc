@@ -104,14 +104,21 @@ EmpowerWifiEncap::push(int, Packet *p) {
 		return;
 	}
 
+	char join_group [6] = {0x01, 0x00, 0x5e, 0x00, 0x00, 0x16};
+	    if (dst == EtherAddress((const unsigned char *) join_group))
+	    	click_chatter("%{element} :: %s :: IGMPPPPPPPPP EN ENCAP. src %s. dst %s",
+	    					      this,
+	    					      __func__, src.unparse().c_str(), dst.unparse().c_str());
+
+
 	// broadcast and multicast traffic, we need to transmit one frame for each unique
 	// bssid. this is due to the fact that we can have the same bssid for multiple LVAPs.
 	for (int i = 0; i < _el->num_ifaces(); i++) {
 
 		TxPolicyInfo * tx_policy = _el->get_tx_policies(i)->lookup(dst);
+		TxPolicyInfo * mcast_tx_policy = _el->get_tx_policies(i)->supported(dst);
 
-		if (tx_policy->_tx_mcast == TX_MCAST_DMS) {
-
+		if (mcast_tx_policy && tx_policy->_tx_mcast == TX_MCAST_DMS) {
 			// dms mcast policy, duplicate the frame for each station in
 			// each bssid and use unicast destination addresses. note that
 			// a given station cannot be in more than one bssid, so just
@@ -148,11 +155,22 @@ EmpowerWifiEncap::push(int, Packet *p) {
 				output(0).push(p_out);
 			}
 
-		} else if (tx_policy->_tx_mcast == TX_MCAST_UR) {
+		} else if (mcast_tx_policy  && tx_policy->_tx_mcast == TX_MCAST_UR) {
 
 			// TODO: implement
 
 		} else {
+
+			if (!dst.is_broadcast() && mcast_tx_policy == 0)
+			{
+
+				click_chatter("%{element} :: %s :: The multicast address %s is not found in the tx_policy table. Sending request to the controller for iface %d",
+																 this,
+																 __func__,
+																 dst.unparse().c_str(), i);
+
+				_el->send_incomming_mcast_address(dst, i);
+			}
 
 			// legacy mcast policy, just send the frame as it is, minstrel will
 			// pick the rate from the transmission policies table

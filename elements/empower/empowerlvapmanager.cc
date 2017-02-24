@@ -303,6 +303,7 @@ void EmpowerLVAPManager::send_probe_request(EtherAddress src, String ssid, uint8
 	request->set_band(re->_band);
 	request->set_channel(re->_channel);
 
+
 	output(0).push(p);
 
 }
@@ -948,6 +949,38 @@ void EmpowerLVAPManager::send_caps() {
 
 }
 
+void EmpowerLVAPManager::send_incomming_mcast_address(EtherAddress mcast_address, int iface) {
+
+	int len = sizeof(empower_incom_mcast_addr);
+	WritablePacket *p = Packet::make(len);
+
+	if (!p) {
+		click_chatter("%{element} :: %s :: cannot make packet!",
+					  this,
+					  __func__);
+		return;
+	}
+
+	memset(p->data(), 0, p->length());
+
+	struct empower_incom_mcast_addr *mcast_addr = (struct empower_incom_mcast_addr *) (p->data());
+
+	mcast_addr->set_version(_empower_version);
+	mcast_addr->set_length(sizeof(empower_incom_mcast_addr));
+	mcast_addr->set_type(EMPOWER_PT_INCOM_MCAST_REQUEST);
+	mcast_addr->set_seq(get_next_seq());
+	mcast_addr->set_mcast_addr(mcast_address);
+	mcast_addr->set_wtp(_wtp);
+	mcast_addr->set_iface(iface);
+
+	click_chatter("%{element} :: %s :: The incomming mcast address %s packet is about to be sent from iface %d in wtp %s",
+						  this,
+						  __func__, mcast_address.unparse().c_str(), iface, _wtp.unparse().c_str());
+
+	output(0).push(p);
+
+}
+
 int EmpowerLVAPManager::handle_add_vap(Packet *p, uint32_t offset) {
 
 	struct empower_add_vap *add_vap = (struct empower_add_vap *) (p->data() + offset);
@@ -1329,6 +1362,7 @@ int EmpowerLVAPManager::handle_auth_response(Packet *p, uint32_t offset) {
 	EmpowerStationState *ess = _lvaps.get_pointer(sta);
 	ess->_authentication_status = true;
 	ess->_association_status = false;
+
 	_eauthr->send_auth_response(ess->_sta, 2, WIFI_STATUS_SUCCESS, ess->_iface_id);
 	return 0;
 }
@@ -1343,6 +1377,7 @@ int EmpowerLVAPManager::handle_assoc_response(Packet *p, uint32_t offset) {
 				      sta.unparse_colon().c_str());
 	}
 	EmpowerStationState *ess = _lvaps.get_pointer(sta);
+
 	_eassor->send_association_response(ess->_sta, WIFI_STATUS_SUCCESS, ess->_iface_id);
 	return 0;
 }
@@ -1402,6 +1437,25 @@ int EmpowerLVAPManager::handle_nimg_request(Packet *p, uint32_t offset) {
 	uint8_t channel = q->channel();
 	send_img_response(EMPOWER_PT_NCQM_RESPONSE, q->graph_id(), hwaddr, channel, band);
 	return 0;
+}
+
+int EmpowerLVAPManager::handle_incom_mcast_addr_response(Packet *p, uint32_t offset) {
+
+	struct empower_incom_mcast_addr_response *q = (struct empower_incom_mcast_addr_response *) (p->data() + offset);
+	EtherAddress mcast_addr = q->mcast_addr();
+	int iface = q->iface();
+
+	click_chatter("%{element} :: %s :: Receiving incom mcast address %s response for iface %d",
+							  this,
+							  __func__, mcast_addr.unparse().c_str(), iface);
+
+	TxPolicyInfo* def_tx_policy = _rcs[iface]->tx_policies()->default_tx_policy();
+	Vector<int> basic_rate;
+	basic_rate.push_back(*(def_tx_policy->_mcs.begin()));
+
+	_rcs[iface]->tx_policies()->insert(mcast_addr, basic_rate, def_tx_policy->_no_ack, TX_MCAST_LEGACY, def_tx_policy->_ur_mcast_count, def_tx_policy->_rts_cts);
+	return 0;
+
 }
 
 void EmpowerLVAPManager::push(int, Packet *p) {
@@ -1484,6 +1538,9 @@ void EmpowerLVAPManager::push(int, Packet *p) {
 			break;
 		case EMPOWER_PT_BUSYNESS_REQUEST:
 			handle_busyness_request(p, offset);
+			break;
+		case EMPOWER_PT_INCOM_MCAST_RESPONSE:
+			handle_incom_mcast_addr_response(p, offset);
 			break;
 		default:
 			click_chatter("%{element} :: %s :: Unknown packet type: %d",

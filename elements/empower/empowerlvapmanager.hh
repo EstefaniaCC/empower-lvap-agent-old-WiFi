@@ -258,6 +258,7 @@ public:
 	int handle_add_busyness_trigger(Packet *, uint32_t);
 	int handle_del_busyness_trigger(Packet *, uint32_t);
 	int handle_busyness_request(Packet *, uint32_t);
+	int handle_incom_mcast_addr_response(Packet *p, uint32_t offset);
 
 	void send_hello();
 	void send_probe_request(EtherAddress, String, uint8_t);
@@ -279,6 +280,7 @@ public:
 	void send_summary_trigger(SummaryTrigger *);
 	void send_busyness_trigger(uint32_t, uint32_t, uint32_t);
 	void send_lvap_stats_response(EtherAddress, uint32_t);
+	void send_incomming_mcast_address (EtherAddress, int);
 
 	LVAP* lvaps() { return &_lvaps; }
 	VAP* vaps() { return &_vaps; }
@@ -319,6 +321,12 @@ public:
 	TransmissionPolicies * get_tx_policies(int iface_id) {
 		Minstrel * rc = _rcs[iface_id];
 		return rc->tx_policies();
+	}
+
+	void set_tx_policies(int iface_id, EtherAddress eth, Vector<int> mcs, bool no_ack,
+			empower_tx_mcast_type tx_mcast, int ur_mcast_count, int rts_cts)
+	{
+		_rcs[iface_id]->tx_policies()->insert(eth, mcs, no_ack, tx_mcast, ur_mcast_count, rts_cts);
 	}
 
 private:
