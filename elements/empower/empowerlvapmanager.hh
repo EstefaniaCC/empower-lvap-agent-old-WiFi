@@ -75,7 +75,6 @@ enum empower_lvap_flags {
 enum empower_bands_types {
     EMPOWER_BT_L20 = 0x0,
     EMPOWER_BT_HT20 = 0x1,
-    EMPOWER_BT_HT40 = 0x2,
 };
 
 typedef HashTable<uint16_t, uint32_t> CBytes;
@@ -140,6 +139,7 @@ public:
 	int _channel;
 	empower_bands_types _band;
 	int _iface_id;
+	int _group;
 	bool _set_mask;
 	bool _authentication_status;
 	bool _association_status;
@@ -199,9 +199,6 @@ public:
 		case EMPOWER_BT_HT20:
 			sa << "HT20";
 			break;
-		case EMPOWER_BT_HT40:
-			sa << "HT40";
-			break;
 		}
 		sa << ")";
 		return sa.take_string();
@@ -258,12 +255,16 @@ public:
 	int handle_add_busyness_trigger(Packet *, uint32_t);
 	int handle_del_busyness_trigger(Packet *, uint32_t);
 	int handle_busyness_request(Packet *, uint32_t);
+<<<<<<< HEAD
 	int handle_incom_mcast_addr_response(Packet *p, uint32_t offset);
+=======
+	int handle_wtp_counters_request(Packet *, uint32_t);
+>>>>>>> upstream/master
 
 	void send_hello();
-	void send_probe_request(EtherAddress, String, uint8_t);
+	void send_probe_request(EtherAddress, String, EtherAddress, int, empower_bands_types);
 	void send_auth_request(EtherAddress, EtherAddress);
-	void send_association_request(EtherAddress, EtherAddress, String);
+	void send_association_request(EtherAddress, EtherAddress, String, EtherAddress, int, empower_bands_types);
 	void send_status_lvap(EtherAddress);
 	void send_status_vap(EtherAddress);
 
@@ -281,6 +282,7 @@ public:
 	void send_busyness_trigger(uint32_t, uint32_t, uint32_t);
 	void send_lvap_stats_response(EtherAddress, uint32_t);
 	void send_incomming_mcast_address (EtherAddress, int);
+	void send_wtp_counters_response(uint32_t);
 
 	LVAP* lvaps() { return &_lvaps; }
 	VAP* vaps() { return &_vaps; }
@@ -344,6 +346,7 @@ private:
 	class EmpowerAssociationResponder *_eassor;
 	class EmpowerDeAuthResponder *_edeauthr;
 	class EmpowerRXStats *_ers;
+	class EmpowerFairBuffer *_efb;
 
 	String _empower_iface;
 	EtherAddress _empower_hwaddr;

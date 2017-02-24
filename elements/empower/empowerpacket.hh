@@ -76,6 +76,9 @@ enum empower_packet_types {
     // Multicast address transmission policies
     EMPOWER_PT_INCOM_MCAST_REQUEST = 0x38,		// wtp -> ac
     EMPOWER_PT_INCOM_MCAST_RESPONSE = 0x39,		// ac -> wtp
+    // WTP Packet/Bytes counters
+    EMPOWER_PT_WTP_COUNTERS_REQUEST = 0x41,         // ac -> wtp
+    EMPOWER_PT_WTP_COUNTERS_RESPONSE = 0x42,        // wtp -> ac
 
 };
 
@@ -159,12 +162,18 @@ struct empower_assoc_request : public empower_header {
     uint8_t _wtp[6];	/* EtherAddress */
     uint8_t _sta[6];	/* EtherAddress */
     uint8_t _bssid[6];	/* EtherAddress */
+    uint8_t _hwaddr[6]; /* EtherAddress */
+    uint8_t _channel;	/* WiFi channel (int) */
+    uint8_t _band;		/* WiFi band (empower_bands_types) */
     char    _ssid[];	/* SSID (String) */
   public:
     void set_wtp(EtherAddress wtp)     { memcpy(_wtp, wtp.data(), 6); }
     void set_sta(EtherAddress sta)     { memcpy(_sta, sta.data(), 6); }
     void set_bssid(EtherAddress bssid) { memcpy(_bssid, bssid.data(), 6); }
     void set_ssid(String ssid)         { memcpy(&_ssid, ssid.data(), ssid.length()); }
+    void set_hwaddr(EtherAddress hwaddr) { memcpy(_hwaddr, hwaddr.data(), 6); }
+    void set_band(uint8_t band)          { _band = band; }
+    void set_channel(uint8_t channel)    { _channel = channel; }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
 /* association response packet format */
@@ -385,6 +394,40 @@ struct counters_entry {
     void set_count(uint32_t count) { _count = htonl(count); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
+/* counters request packet format */
+struct empower_wtp_counters_request : public empower_header {
+private:
+  uint32_t  _counters_id;	/* Module id (int) */
+public:
+    uint32_t counters_id() { return ntohl(_counters_id); }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
+/* counters response packet format */
+struct empower_wtp_counters_response : public empower_header {
+private:
+  uint32_t _counters_id;	/* Module id (int) */
+  uint8_t  _wtp[6];			/* EtherAddress */
+  uint16_t _nb_tx;			/* Int */
+  uint16_t _nb_rx;			/* Int */
+public:
+    void set_wtp(EtherAddress wtp)             { memcpy(_wtp, wtp.data(), 6); }
+    void set_nb_tx(uint16_t nb_tx)             { _nb_tx = htons(nb_tx); }
+    void set_nb_rx(uint16_t nb_rx)             { _nb_rx = htons(nb_rx); }
+    void set_counters_id(uint32_t counters_id) { _counters_id = htonl(counters_id); }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
+/* counters entry format */
+struct wtp_counters_entry {
+  private:
+    uint8_t  _sta[6];	/* EtherAddress */
+    uint16_t _size;		/* Frame size in bytes (int) */
+    uint32_t _count; 	/* Number of frames (int) */
+  public:
+    void set_sta(EtherAddress sta) { memcpy(_sta, sta.data(), 6); }
+    void set_size(uint16_t size)   { _size = htons(size); }
+    void set_count(uint32_t count) { _count = htonl(count); }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
 /* SSID entry */
 struct ssid_entry {
   private:
@@ -400,7 +443,8 @@ struct ssid_entry {
 /* add vap packet format */
 struct empower_add_lvap : public empower_header {
 private:
-    uint16_t     _flags;			/* Flags (empower_packet_flags) */
+    uint16_t	 _group;			/* lvap group */
+	uint16_t     _flags;			/* Flags (empower_packet_flags) */
     uint16_t     _assoc_id;			/* Association id */
     uint8_t      _hwaddr[6];		/* EtherAddress */
     uint8_t      _channel;			/* WiFi channel (int) */
@@ -411,6 +455,7 @@ private:
     uint8_t      _lvap_bssid[6];	/* EtherAddress */
     ssid_entry * _ssids[];			/* SSIDs (ssid_entry) */
 public:
+    uint16_t     group()      { return ntohs(_group); }
     uint8_t      band()       { return _band; }
     uint8_t      channel()    { return _channel; }
     bool         flag(int f)  { return ntohs(_flags) & f;  }
