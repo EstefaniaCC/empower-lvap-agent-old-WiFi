@@ -1,5 +1,5 @@
 /*
- * empowerigmpmembership.{cc,hh} -- handle igmp join requests (EmPOWER Access Point)
+ * empowerigmpmembership.{cc,hh} -- handle IGMP packets (EmPOWER Access Point)
  * Estefania Coronado
  *
  *
@@ -21,9 +21,9 @@
 #include <click/packet_anno.hh>
 #include <click/error.hh>
 #include <clicknet/wifi.h>
-#include <elements/wifi/minstrel.hh>
+#include <clicknet/ip.h>
+#include <clicknet/ether.h>
 #include "empowerpacket.hh"
-#include "empowerlvapmanager.hh"
 CLICK_DECLS
 
 EmpowerIgmpMembership::EmpowerIgmpMembership() :
@@ -44,135 +44,176 @@ int EmpowerIgmpMembership::configure(Vector<String> &conf,
 
 }
 
-void EmpowerIgmpMembership::push(int, Packet *p) {
+void EmpowerIgmpMembership::push(int, Packet *p)
+{
+
+	const click_ip *ip = p->ip_header();
+
+	void *igmpmessage = (void *) (p->data() + (ip->ip_hl * 4));
+	/* IGMP messages
+	 * RFC 1112 IGMPv1: 11= query 12= join group
+	 * RFC 2236 IGMPv2: 11= query 16= join group 17= leave group
+	 * RFC 3376 IGMPv3: 11= query 22= join or leave group
+	 */
 
 	if (p->length() < sizeof(struct click_ether)) {
-			click_chatter("%{element} :: %s :: packet too small: %d vs %d",
-					      this,
-					      __func__,
-					      p->length(),
-					      sizeof(struct click_ether));
-			p->kill();
-			return;
-		}
-
-	click_ether *eh = (click_ether *) p->data();
-
-	EtherAddress src = EtherAddress(eh->ether_shost);
-	EtherAddress dst = EtherAddress(eh->ether_dhost);
-
-	int ether_type =
-
-
-
-}
-
-void EmpowerAssociationResponder::send_association_response(EtherAddress dst,
-		uint16_t status, int iface_id) {
-
-    EmpowerStationState *ess = _el->get_ess(dst);
-	ess->_association_status = true;
-
-	if (_debug) {
-		click_chatter("%{element} :: %s :: association %s assoc_id %d",
-				      this,
-				      __func__,
-				      dst.unparse().c_str(),
-				      ess->_assoc_id);
-	}
-
-	int max_len = sizeof(struct click_wifi) + 2 + /* cap_info */
-											  2 + /* status  */
-											  2 + /* assoc_id */
-											  2 + WIFI_RATES_MAXSIZE + /* rates */
-											  2 + WIFI_RATES_MAXSIZE + /* xrates */
-											  0;
-
-	WritablePacket *p = Packet::make(max_len);
-
-	if (!p) {
-		click_chatter("%{element} :: %s :: cannot make packet!",
-				      this,
-				      __func__);
+		click_chatter("%{element} :: %s :: packet too small: %d vs %d", this,
+				__func__, p->length(), sizeof(struct click_ether));
+		p->kill();
 		return;
 	}
 
-	struct click_wifi *w = (struct click_wifi *) p->data();
+	click_ether *eh = (click_ether *) p->data();
+	EtherAddress src = EtherAddress(eh->ether_shost);
+	EtherAddress dst = EtherAddress(eh->ether_dhost);
+	Vector<IPAddress> mcast_addresses;
+	Vector<empower_igmp_record_type> igmp_types;
+	EmpowerStationState *ess = _el->get_ess(src);
 
-	w->i_fc[0] = WIFI_FC0_VERSION_0 | WIFI_FC0_TYPE_MGT
-			| WIFI_FC0_SUBTYPE_ASSOC_RESP;
-	w->i_fc[1] = WIFI_FC1_DIR_NODS;
+	unsigned short grouprecord_counter;
 
-	memcpy(w->i_addr1, dst.data(), 6);
-	memcpy(w->i_addr2, ess->_lvap_bssid.data(), 6);
-	memcpy(w->i_addr3, ess->_lvap_bssid.data(), 6);
+	switch (*(char *) igmpmessage)
+	{
+	case 0x11:
+		// TODO. Query received from other AP.
+		click_chatter("%{element} :: %s :: IGMP query from %x", this, __func__,
+				ip->ip_src);
+		break;
 
-	w->i_dur = 0;
-	w->i_seq = 0;
-
-	uint8_t *ptr = (uint8_t *) p->data() + sizeof(struct click_wifi);
-	int actual_length = sizeof(struct click_wifi);
-
-	uint16_t cap_info = 0;
-	cap_info |= WIFI_CAPINFO_ESS;
-	*(uint16_t *) ptr = cpu_to_le16(cap_info);
-	ptr += 2;
-	actual_length += 2;
-
-	*(uint16_t *) ptr = cpu_to_le16(status);
-	ptr += 2;
-	actual_length += 2;
-
-	*(uint16_t *) ptr = cpu_to_le16(0xc000 | ess->_assoc_id);
-	ptr += 2;
-	actual_length += 2;
-
-	/* rates */
-
-	TransmissionPolicies * tx_table = _el->get_tx_policies(iface_id);
-
-	Vector<int> rates = tx_table->lookup(ess->_sta)->_mcs;
-	ptr[0] = WIFI_ELEMID_RATES;
-	ptr[1] = WIFI_MIN(WIFI_RATE_SIZE, rates.size());
-	for (int x = 0; x < WIFI_MIN(WIFI_RATE_SIZE, rates.size()); x++) {
-		ptr[2 + x] = (uint8_t) rates[x];
-		if (rates[x] == 2 || rates[x] == 12) {
-			ptr[2 + x] |= WIFI_RATE_BASIC;
+	case 0x12:
+		if (click_in_cksum((unsigned char*) igmpmessage,
+				sizeof(igmpv1andv2message)) != 0)
+		{
+			click_chatter("%{element} :: %s :: IGMPv1 report wrong checksum!",
+					this, __func__);
+			p->kill();
+			return;
 		}
-	}
-	ptr += 2 + WIFI_MIN(WIFI_RATE_SIZE, rates.size());
-	actual_length += 2 + WIFI_MIN(WIFI_RATE_SIZE, rates.size());
+		igmp_types.push_back(V1_MEMBERSHIP_REPORT);
+		mcast_addresses.push_back(IPAddress(ip->ip_dst));
+		break;
 
-	int num_xrates = rates.size() - WIFI_RATE_SIZE;
-	if (num_xrates > 0) {
-		/* rates */
-		ptr[0] = WIFI_ELEMID_XRATES;
-		ptr[1] = num_xrates;
-		for (int x = 0; x < num_xrates; x++) {
-			ptr[2 + x] = (uint8_t) rates[x + WIFI_RATE_SIZE];
-			if (rates[x + WIFI_RATE_SIZE] == 2 || rates[x + WIFI_RATE_SIZE] == 12) {
-				ptr[2 + x] |= WIFI_RATE_BASIC;
+	case 0x16:
+		if (click_in_cksum((unsigned char*) igmpmessage,
+				sizeof(igmpv1andv2message)) != 0)
+		{
+			click_chatter("%{element} :: %s :: IGMPv2 join wrong checksum!",
+					this, __func__);
+			p->kill();
+			return;
+		}
+		igmp_types.push_back(V2_JOIN_GROUP);
+		mcast_addresses.push_back(IPAddress(ip->ip_dst));
+		break;
+
+	case 0x17:
+		if (click_in_cksum((unsigned char*) igmpmessage,
+				sizeof(igmpv1andv2message)) != 0)
+		{
+			click_chatter("%{element} :: %s :: IGMPv2 leave wrong checksum!",
+					this, __func__);
+			p->kill();
+			return;
+		}
+		igmpv1andv2message * v1andv2message = (igmpv1andv2message *) igmpmessage;
+		igmp_types.push_back(V2_LEAVE_GROUP);
+		mcast_addresses.push_back(IPAddress(v1andv2message->group));
+		break;
+
+	case 0x22:
+		if (click_in_cksum((unsigned char*) igmpmessage,
+				(ntohs(ip->ip_len) - (ip->ip_hl * 4))) != 0)
+		{
+			click_chatter("%{element} :: %s :: IGMPv3 wrong checksum!", this,
+					__func__);
+			p->kill();
+			return;
+		}
+		igmpv3report * v3report = (igmpv3report *) igmpmessage;
+
+		for (grouprecord_counter = 0; grouprecord_counter < ntohs(v3report->no_of_grouprecords); grouprecord_counter++)
+		{
+			switch (v3report->grouprecords[grouprecord_counter].type)
+			{
+			case 0x01:
+				click_chatter("%{element} :: %s :: IGMPv3 include mode", this,
+						__func__);
+				igmp_types.push_back(V3_MODE_IS_INCLUDE);
+				mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+				break;
+
+			case 0x02:
+				// host answered to a query, keepalive timer can be restarted, to be implemented in host
+				click_chatter("%{element} :: %s :: IGMPv3 exclude mode", this,
+						__func__);
+				igmp_types.push_back(V3_MODE_IS_EXCLUDE);
+				mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+				break;
+
+			case 0x03:
+				click_chatter(
+						"%{element} :: %s :: IGMPv3 change to include mode",
+						this, __func__);
+				igmp_types.push_back(V3_CHANGE_TO_INCLUDE_MODE);
+				mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+				break;
+			case 0x04:
+				click_chatter(
+						"%{element} :: %s :: IGMPv3 change to exclude mode",
+						this, __func__);
+				igmp_types.push_back(V3_CHANGE_TO_EXCLUDE_MODE);
+				mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+				break;
+			case 0x05:
+				//TODO: "ALLOW_NEW_SOURCES". Sources management
+				igmp_types.push_back(V3_ALLOW_NEW_SOURCES);
+				mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+				break;
+			case 0x06:
+				//TODO: "BLOCK_OLD_SOURCES". Sources management
+				igmp_types.push_back(V3_BLOCK_OLD_SOURCES);
+				mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+				break;
+			default:
+				click_chatter(
+						"%{element} :: %s :: Unknown type in IGMP grouprecord or bad group record pointer",
+						this, __func__);
+				p->kill();
+				return;
+				break;
 			}
 		}
-		ptr += 2 + num_xrates;
-		actual_length += 2 + num_xrates;
+		break;
+
+	default:
+		click_chatter("%{element} :: %s :: Unknown IGMP message", this,
+				__func__);
 	}
 
-	p->take(max_len - actual_length);
+	if (ess && !mcast_addresses.empty() && !igmp_types.empty() && mcast_addresses.size() == igmp_types.size())
+	{
+		click_chatter("%{element} :: %s :: IGMP packet received from %s, number of addresses %d, number of igmp reports %d."
+				"Sending message to lvapmannager to be sent to the controller",
+										this, __func__, src.unparse().c_str(), mcast_addresses.size(), igmp_types.size());
+		_el->send_igmp_report(src, &mcast_addresses, &igmp_types);
+	}
+	else
+	{
+		click_chatter("%{element} :: %s :: Problem with IGMP information. Src %s, number of addresses %d, number of igmp reports %d",
+								this, __func__, src.unparse().c_str(), mcast_addresses.size(), igmp_types.size());
+	}
 
-	_el->send_status_lvap(dst);
-
-	SET_PAINT_ANNO(p, iface_id);
-	output(0).push(p);
-
+	p->kill();
+	return;
 }
+
 
 enum {
 	H_DEBUG
 };
 
-String EmpowerAssociationResponder::read_handler(Element *e, void *thunk) {
-	EmpowerAssociationResponder *td = (EmpowerAssociationResponder *) e;
+String EmpowerIgmpMembership::read_handler(Element *e, void *thunk) {
+	EmpowerIgmpMembership *td = (EmpowerIgmpMembership *) e;
 	switch ((uintptr_t) thunk) {
 	case H_DEBUG:
 		return String(td->_debug) + "\n";
@@ -181,10 +222,10 @@ String EmpowerAssociationResponder::read_handler(Element *e, void *thunk) {
 	}
 }
 
-int EmpowerAssociationResponder::write_handler(const String &in_s, Element *e,
+int EmpowerIgmpMembership::write_handler(const String &in_s, Element *e,
 		void *vparam, ErrorHandler *errh) {
 
-	EmpowerAssociationResponder *f = (EmpowerAssociationResponder *) e;
+	EmpowerIgmpMembership *f = (EmpowerIgmpMembership *) e;
 	String s = cp_uncomment(in_s);
 
 	switch ((intptr_t) vparam) {
@@ -199,10 +240,10 @@ int EmpowerAssociationResponder::write_handler(const String &in_s, Element *e,
 	return 0;
 }
 
-void EmpowerAssociationResponder::add_handlers() {
+void EmpowerIgmpMembership::add_handlers() {
 	add_read_handler("debug", read_handler, (void *) H_DEBUG);
 	add_write_handler("debug", write_handler, (void *) H_DEBUG);
 }
 
 CLICK_ENDDECLS
-EXPORT_ELEMENT(EmpowerAssociationResponder)
+EXPORT_ELEMENT(EmpowerIgmpMembership)

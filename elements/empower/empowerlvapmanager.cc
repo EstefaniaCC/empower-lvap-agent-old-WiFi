@@ -1042,6 +1042,49 @@ void EmpowerLVAPManager::send_incomming_mcast_address(EtherAddress mcast_address
 
 }
 
+void EmpowerLVAPManager::send_igmp_report(EtherAddress src,
+		Vector<IPAddress>* mcast_addresses, Vector<empower_igmp_record_type>* igmp_types) {
+	int grouprecord_counter;
+
+	for (grouprecord_counter = 0; grouprecord_counter < mcast_addresses->size(); grouprecord_counter++)
+	{
+		//send message to the controller
+		int len = sizeof(empower_igmp_request);
+		WritablePacket *p = Packet::make(len);
+
+		if (!p) {
+			click_chatter("%{element} :: %s :: cannot make packet!",
+						  this,
+						  __func__);
+			return;
+		}
+
+		memset(p->data(), 0, p->length());
+
+		struct empower_igmp_request *igmp_request = (struct empower_igmp_request *) (p->data());
+
+		igmp_request->set_version(_empower_version);
+		igmp_request->set_length(sizeof(empower_igmp_request));
+		igmp_request->set_type(EMPOWER_PT_IGMP_REQUEST);
+		igmp_request->set_seq(get_next_seq());
+		igmp_request->set_mcast_addr(mcast_addresses->at(grouprecord_counter));
+		igmp_request->set_wtp(_wtp);
+		igmp_request->set_sta(src);
+		igmp_request->set_igmp_type(igmp_types->at(grouprecord_counter));
+
+		click_chatter("%{element} :: %s :: The IGMP request type %d from sta %s for the mcast address %s packet is about to be sent from wtp %s",
+							  this,
+							  __func__, igmp_types->at(grouprecord_counter), src.unparse().c_str(),
+							  mcast_addresses->at(grouprecord_counter).unparse().c_str(), _wtp.unparse().c_str());
+
+		output(0).push(p);
+	}
+
+}
+
+
+
+
 int EmpowerLVAPManager::handle_add_vap(Packet *p, uint32_t offset) {
 
 	struct empower_add_vap *add_vap = (struct empower_add_vap *) (p->data() + offset);

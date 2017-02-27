@@ -3,17 +3,16 @@
 #define CLICK_EMPOWERIGMPMEMBERSHIP_HH
 #include <click/element.hh>
 #include <click/config.h>
-#include <elements/wifi/availablerates.hh>
 CLICK_DECLS
 
 /*
 =c
 
-EmpowerAssociationResponder(RL, EL, [, I<KEYWORDS>])
+EmpowerIgmpMembership(RL, EL, [, I<KEYWORDS>])
 
 =s EmPOWER
 
-Respond to 802.11 association requests.
+Handle IGMP packets
 
 =d
 
@@ -35,6 +34,59 @@ Turn debug on/off
 =a EmpowerLVAPManager
 */
 
+
+enum empower_igmp_record_type {
+	V3_MODE_IS_INCLUDE = 0x0,
+	V3_MODE_IS_EXCLUDE = 0x1,
+	V3_CHANGE_TO_INCLUDE_MODE = 0x2,
+	V3_CHANGE_TO_EXCLUDE_MODE = 0x3,
+	V3_ALLOW_NEW_SOURCES = 0x4,
+	V3_BLOCK_OLD_SOURCES = 0x5,
+	V2_JOIN_GROUP = 0x6,
+	V2_LEAVE_GROUP = 0x7,
+	V1_MEMBERSHIP_REPORT = 0x8,
+	V1_V2_MEMBERSHIP_QUERY=0x9
+
+};
+
+// IGMPv1 and IGMPv2 messages have to be supported by an IGMPv3 router
+struct igmpv1andv2message {
+  unsigned char type;
+  unsigned char responsetime;
+  unsigned short checksum;
+  unsigned int group;
+};
+
+// the query is used to detect other routers and the state of connected hosts
+struct igmpv3query {
+  unsigned char type;
+  unsigned char responsecode;
+  unsigned short checksum;
+  unsigned int group;
+  unsigned char s_and_qrv;
+  unsigned char qqic;
+  unsigned short no_of_sources;
+  unsigned int sources[1];
+};
+
+// see RFC 3376 for details
+struct grouprecord {
+  unsigned char type;
+  unsigned char aux_data_len;
+  unsigned short no_of_sources;
+  unsigned int multicast_address;
+  unsigned int sources[1];
+};
+
+struct igmpv3report {
+  unsigned char type;
+  unsigned char reserved;
+  unsigned short checksum;
+  unsigned short reserved_short;
+  unsigned short no_of_grouprecords;
+  struct grouprecord grouprecords[1];
+};
+
 class EmpowerIgmpMembership: public Element {
 public:
 
@@ -47,7 +99,6 @@ public:
 
 	int configure(Vector<String> &, ErrorHandler *);
 	void add_handlers();
-	void send_association_response(EtherAddress, uint16_t, int);
 	void push(int, Packet *);
 
 private:

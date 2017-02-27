@@ -175,6 +175,7 @@ EmpowerWifiDecap::push(int, Packet *p) {
 	}
 
 	TxPolicyInfo * txp = _el->get_txp(src);
+	int decap_outputs;
 
 	// frame must be encapsulated in another Ethernet frame
 	if (ess->_encap) {
@@ -193,8 +194,10 @@ EmpowerWifiDecap::push(int, Packet *p) {
 
 		txp->update_rx(p_out->length());
 
-		if (Packet *clone = p->clone())
-			output(1).push(clone);
+
+		for (decap_outputs = 1; decap_outputs <= 2; decap_outputs ++)
+			if (Packet *clone = p->clone())
+				output(decap_outputs).push(clone);
 
 		output(0).push(p);
 
@@ -225,8 +228,9 @@ EmpowerWifiDecap::push(int, Packet *p) {
 
 	txp->update_rx(p_out->length());
 
-	if (Packet *clone = p->clone())
-		output(1).push(clone);
+	for (decap_outputs = 1; decap_outputs <= 2; decap_outputs ++)
+		if (Packet *clone = p->clone())
+			output(decap_outputs).push(clone);
 
 	output(0).push(p);
 

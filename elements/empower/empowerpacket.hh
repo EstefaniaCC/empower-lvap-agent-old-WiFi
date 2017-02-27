@@ -76,9 +76,13 @@ enum empower_packet_types {
     // Multicast address transmission policies
     EMPOWER_PT_INCOM_MCAST_REQUEST = 0x38,		// wtp -> ac
     EMPOWER_PT_INCOM_MCAST_RESPONSE = 0x39,		// ac -> wtp
+
     // WTP Packet/Bytes counters
     EMPOWER_PT_WTP_COUNTERS_REQUEST = 0x41,         // ac -> wtp
     EMPOWER_PT_WTP_COUNTERS_RESPONSE = 0x42,        // wtp -> ac
+
+	// IGMP messages
+	EMPOWER_PT_IGMP_REQUEST = 0x43,				// wtp -> ac
 
 };
 
@@ -771,6 +775,19 @@ struct empower_incom_mcast_addr_response : public empower_header {
   public:
     EtherAddress mcast_addr() 	{ return EtherAddress(_mcast_addr); }
     uint8_t iface()     		{ return _iface; }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
+struct empower_igmp_request : public empower_header {
+  private:
+    uint8_t  _wtp[6]; 			/* EtherAddress */
+    uint8_t  _sta [6];			/* EtherAddress */
+    uint8_t  _mcast_addr[6]; 	/* EtherAddress */
+    uint8_t  _igmp_type;		/* IGMP record type */
+  public:
+    void set_wtp(EtherAddress wtp)   				{ memcpy(_wtp, wtp.data(), 6); }
+    void set_sta(EtherAddress sta)                  { memcpy(_sta, sta.data(), 6); }
+    void set_mcast_addr(EtherAddress mcast_addr) 	{ memcpy(_mcast_addr, mcast_addr.data(), 6); }
+    void set_igmp_type(int igmp_type)         		{ _igmp_type = igmp_type; }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
 CLICK_ENDDECLS

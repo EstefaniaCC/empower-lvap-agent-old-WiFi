@@ -280,6 +280,7 @@ public:
 	void send_lvap_stats_response(EtherAddress, uint32_t);
 	void send_incomming_mcast_address (EtherAddress, int);
 	void send_wtp_counters_response(uint32_t);
+	void send_igmp_report(EtherAddress,Vector<IPAddress>*, Vector<empower_igmp_record_type>*);
 
 	LVAP* lvaps() { return &_lvaps; }
 	VAP* vaps() { return &_vaps; }
