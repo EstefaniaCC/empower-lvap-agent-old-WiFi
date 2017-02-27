@@ -32,6 +32,7 @@
 #include "empowerassociationresponder.hh"
 #include "empowerdeauthresponder.hh"
 #include "empowerdisassocresponder.hh"
+#include "igmppacket.hh"
 #include "empowerrxstats.hh"
 #include "empowerfairbuffer.hh"
 CLICK_DECLS

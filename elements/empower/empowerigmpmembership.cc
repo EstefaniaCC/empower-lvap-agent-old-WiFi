@@ -15,7 +15,6 @@
  */
 
 #include <click/config.h>
-#include "empowerigmpmembership.hh"
 #include <click/args.hh>
 #include <click/straccum.hh>
 #include <click/packet_anno.hh>
@@ -24,6 +23,9 @@
 #include <clicknet/ip.h>
 #include <clicknet/ether.h>
 #include "empowerpacket.hh"
+#include "empowerlvapmanager.hh"
+#include "igmppacket.hh"
+#include "empowerigmpmembership.hh"
 CLICK_DECLS
 
 EmpowerIgmpMembership::EmpowerIgmpMembership() :

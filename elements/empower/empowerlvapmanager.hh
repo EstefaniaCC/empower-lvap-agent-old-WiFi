@@ -11,7 +11,7 @@
 #include <elements/wifi/minstrel.hh>
 #include "empowerrxstats.hh"
 #include "empowerpacket.hh"
-#include "empowerigmpmembership.hh"
+#include "igmppacket.hh"
 CLICK_DECLS
 
 /*
