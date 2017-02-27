@@ -22,6 +22,7 @@
 #include <clicknet/wifi.h>
 #include <clicknet/llc.h>
 #include <clicknet/ether.h>
+#include <clicknet/ip.h>
 #include <elements/standard/counter.hh>
 #include <elements/wifi/minstrel.hh>
 #include <elements/wifi/transmissionpolicy.hh>
@@ -1067,7 +1068,7 @@ void EmpowerLVAPManager::send_igmp_report(EtherAddress src,
 		igmp_request->set_length(sizeof(empower_igmp_request));
 		igmp_request->set_type(EMPOWER_PT_IGMP_REQUEST);
 		igmp_request->set_seq(get_next_seq());
-		igmp_request->set_mcast_addr(mcast_addresses->at(grouprecord_counter));
+		igmp_request->set_mcast_addr((IPAddress)mcast_addresses->at(grouprecord_counter));
 		igmp_request->set_wtp(_wtp);
 		igmp_request->set_sta(src);
 		igmp_request->set_igmp_type(igmp_types->at(grouprecord_counter));

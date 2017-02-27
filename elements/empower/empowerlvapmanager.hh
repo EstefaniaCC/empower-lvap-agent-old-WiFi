@@ -4,12 +4,14 @@
 #include <click/element.hh>
 #include <click/timer.hh>
 #include <click/etheraddress.hh>
+#include <click/ipaddress.hh>
 #include <click/hashtable.hh>
 #include <clicknet/wifi.h>
 #include <click/sync.hh>
 #include <elements/wifi/minstrel.hh>
 #include "empowerrxstats.hh"
 #include "empowerpacket.hh"
+#include "empowerigmpmembership.hh"
 CLICK_DECLS
 
 /*
@@ -280,7 +282,7 @@ public:
 	void send_lvap_stats_response(EtherAddress, uint32_t);
 	void send_incomming_mcast_address (EtherAddress, int);
 	void send_wtp_counters_response(uint32_t);
-	void send_igmp_report(EtherAddress,Vector<IPAddress>*, Vector<empower_igmp_record_type>*);
+	void send_igmp_report(EtherAddress, Vector<IPAddress>*, Vector<empower_igmp_record_type>*);
 
 	LVAP* lvaps() { return &_lvaps; }
 	VAP* vaps() { return &_vaps; }

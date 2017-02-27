@@ -65,129 +65,140 @@ void EmpowerIgmpMembership::push(int, Packet *p)
 
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress src = EtherAddress(eh->ether_shost);
-	EtherAddress dst = EtherAddress(eh->ether_dhost);
+	//EtherAddress dst = EtherAddress(eh->ether_dhost);
 	Vector<IPAddress> mcast_addresses;
 	Vector<empower_igmp_record_type> igmp_types;
 	EmpowerStationState *ess = _el->get_ess(src);
 
 	unsigned short grouprecord_counter;
+	igmpv1andv2message * v1andv2message;
+	igmpv3report * v3report;
 
 	switch (*(char *) igmpmessage)
 	{
-	case 0x11:
-		// TODO. Query received from other AP.
-		click_chatter("%{element} :: %s :: IGMP query from %x", this, __func__,
-				ip->ip_src);
-		break;
-
-	case 0x12:
-		if (click_in_cksum((unsigned char*) igmpmessage,
-				sizeof(igmpv1andv2message)) != 0)
+		case 0x11:
 		{
-			click_chatter("%{element} :: %s :: IGMPv1 report wrong checksum!",
-					this, __func__);
+			// TODO. Query received from other AP.
+			click_chatter("%{element} :: %s :: IGMP query from %x", this, __func__,
+					ip->ip_src);
 			p->kill();
 			return;
 		}
-		igmp_types.push_back(V1_MEMBERSHIP_REPORT);
-		mcast_addresses.push_back(IPAddress(ip->ip_dst));
-		break;
-
-	case 0x16:
-		if (click_in_cksum((unsigned char*) igmpmessage,
-				sizeof(igmpv1andv2message)) != 0)
+		case 0x12:
 		{
-			click_chatter("%{element} :: %s :: IGMPv2 join wrong checksum!",
-					this, __func__);
-			p->kill();
-			return;
+			if (click_in_cksum((unsigned char*) igmpmessage,
+					sizeof(igmpv1andv2message)) != 0)
+			{
+				click_chatter("%{element} :: %s :: IGMPv1 report wrong checksum!",
+						this, __func__);
+				p->kill();
+				return;
+			}
+			igmp_types.push_back(V1_MEMBERSHIP_REPORT);
+			mcast_addresses.push_back(IPAddress(ip->ip_dst));
+			break;
 		}
-		igmp_types.push_back(V2_JOIN_GROUP);
-		mcast_addresses.push_back(IPAddress(ip->ip_dst));
-		break;
-
-	case 0x17:
-		if (click_in_cksum((unsigned char*) igmpmessage,
-				sizeof(igmpv1andv2message)) != 0)
+		case 0x16:
 		{
-			click_chatter("%{element} :: %s :: IGMPv2 leave wrong checksum!",
-					this, __func__);
-			p->kill();
-			return;
+			if (click_in_cksum((unsigned char*) igmpmessage,
+					sizeof(igmpv1andv2message)) != 0)
+			{
+				click_chatter("%{element} :: %s :: IGMPv2 join wrong checksum!",
+						this, __func__);
+				p->kill();
+				return;
+			}
+			igmp_types.push_back(V2_JOIN_GROUP);
+			mcast_addresses.push_back(IPAddress(ip->ip_dst));
+			break;
 		}
-		igmpv1andv2message * v1andv2message = (igmpv1andv2message *) igmpmessage;
-		igmp_types.push_back(V2_LEAVE_GROUP);
-		mcast_addresses.push_back(IPAddress(v1andv2message->group));
-		break;
-
-	case 0x22:
-		if (click_in_cksum((unsigned char*) igmpmessage,
-				(ntohs(ip->ip_len) - (ip->ip_hl * 4))) != 0)
+		case 0x17:
 		{
-			click_chatter("%{element} :: %s :: IGMPv3 wrong checksum!", this,
+			if (click_in_cksum((unsigned char*) igmpmessage,
+					sizeof(igmpv1andv2message)) != 0)
+			{
+				click_chatter("%{element} :: %s :: IGMPv2 leave wrong checksum!",
+						this, __func__);
+				p->kill();
+				return;
+			}
+			v1andv2message = (igmpv1andv2message *) igmpmessage;
+			igmp_types.push_back(V2_LEAVE_GROUP);
+			mcast_addresses.push_back(IPAddress(v1andv2message->group));
+			break;
+		}
+		case 0x22:
+		{
+			if (click_in_cksum((unsigned char*) igmpmessage, ((int)(ntohs(ip->ip_len) - (ip->ip_hl * 4)))) != 0)
+			{
+				click_chatter("%{element} :: %s :: IGMPv3 wrong checksum!", this,
+						__func__);
+				p->kill();
+				return;
+			}
+			v3report = (igmpv3report *) igmpmessage;
+
+			for (grouprecord_counter = 0; grouprecord_counter < ntohs(v3report->no_of_grouprecords); grouprecord_counter++)
+			{
+				switch (v3report->grouprecords[grouprecord_counter].type)
+				{
+				case 0x01:
+					click_chatter("%{element} :: %s :: IGMPv3 include mode", this,
+							__func__);
+					igmp_types.push_back(V3_MODE_IS_INCLUDE);
+					mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+					break;
+
+				case 0x02:
+					// host answered to a query, keepalive timer can be restarted, to be implemented in host
+					click_chatter("%{element} :: %s :: IGMPv3 exclude mode", this,
+							__func__);
+					igmp_types.push_back(V3_MODE_IS_EXCLUDE);
+					mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+					break;
+
+				case 0x03:
+					click_chatter(
+							"%{element} :: %s :: IGMPv3 change to include mode",
+							this, __func__);
+					igmp_types.push_back(V3_CHANGE_TO_INCLUDE_MODE);
+					mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+					break;
+				case 0x04:
+					click_chatter(
+							"%{element} :: %s :: IGMPv3 change to exclude mode",
+							this, __func__);
+					igmp_types.push_back(V3_CHANGE_TO_EXCLUDE_MODE);
+					mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+					break;
+				case 0x05:
+					//TODO: "ALLOW_NEW_SOURCES". Sources management
+					igmp_types.push_back(V3_ALLOW_NEW_SOURCES);
+					mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+					break;
+				case 0x06:
+					//TODO: "BLOCK_OLD_SOURCES". Sources management
+					igmp_types.push_back(V3_BLOCK_OLD_SOURCES);
+					mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+					break;
+				default:
+					click_chatter(
+							"%{element} :: %s :: Unknown type in IGMP grouprecord or bad group record pointer",
+							this, __func__);
+					p->kill();
+					return;
+				}
+			}
+			break;
+		}
+		default:
+		{
+
+			click_chatter("%{element} :: %s :: Unknown IGMP message", this,
 					__func__);
 			p->kill();
 			return;
 		}
-		igmpv3report * v3report = (igmpv3report *) igmpmessage;
-
-		for (grouprecord_counter = 0; grouprecord_counter < ntohs(v3report->no_of_grouprecords); grouprecord_counter++)
-		{
-			switch (v3report->grouprecords[grouprecord_counter].type)
-			{
-			case 0x01:
-				click_chatter("%{element} :: %s :: IGMPv3 include mode", this,
-						__func__);
-				igmp_types.push_back(V3_MODE_IS_INCLUDE);
-				mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
-				break;
-
-			case 0x02:
-				// host answered to a query, keepalive timer can be restarted, to be implemented in host
-				click_chatter("%{element} :: %s :: IGMPv3 exclude mode", this,
-						__func__);
-				igmp_types.push_back(V3_MODE_IS_EXCLUDE);
-				mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
-				break;
-
-			case 0x03:
-				click_chatter(
-						"%{element} :: %s :: IGMPv3 change to include mode",
-						this, __func__);
-				igmp_types.push_back(V3_CHANGE_TO_INCLUDE_MODE);
-				mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
-				break;
-			case 0x04:
-				click_chatter(
-						"%{element} :: %s :: IGMPv3 change to exclude mode",
-						this, __func__);
-				igmp_types.push_back(V3_CHANGE_TO_EXCLUDE_MODE);
-				mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
-				break;
-			case 0x05:
-				//TODO: "ALLOW_NEW_SOURCES". Sources management
-				igmp_types.push_back(V3_ALLOW_NEW_SOURCES);
-				mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
-				break;
-			case 0x06:
-				//TODO: "BLOCK_OLD_SOURCES". Sources management
-				igmp_types.push_back(V3_BLOCK_OLD_SOURCES);
-				mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
-				break;
-			default:
-				click_chatter(
-						"%{element} :: %s :: Unknown type in IGMP grouprecord or bad group record pointer",
-						this, __func__);
-				p->kill();
-				return;
-				break;
-			}
-		}
-		break;
-
-	default:
-		click_chatter("%{element} :: %s :: Unknown IGMP message", this,
-				__func__);
 	}
 
 	if (ess && !mcast_addresses.empty() && !igmp_types.empty() && mcast_addresses.size() == igmp_types.size())

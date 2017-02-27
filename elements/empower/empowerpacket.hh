@@ -781,12 +781,12 @@ struct empower_igmp_request : public empower_header {
   private:
     uint8_t  _wtp[6]; 			/* EtherAddress */
     uint8_t  _sta [6];			/* EtherAddress */
-    uint8_t  _mcast_addr[6]; 	/* EtherAddress */
+    uint8_t  _mcast_addr[4]; 	/* IPAddress */
     uint8_t  _igmp_type;		/* IGMP record type */
   public:
     void set_wtp(EtherAddress wtp)   				{ memcpy(_wtp, wtp.data(), 6); }
     void set_sta(EtherAddress sta)                  { memcpy(_sta, sta.data(), 6); }
-    void set_mcast_addr(EtherAddress mcast_addr) 	{ memcpy(_mcast_addr, mcast_addr.data(), 6); }
+    void set_mcast_addr(IPAddress mcast_addr) 	{ memcpy(_mcast_addr, mcast_addr.data(), 4); }
     void set_igmp_type(int igmp_type)         		{ _igmp_type = igmp_type; }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
