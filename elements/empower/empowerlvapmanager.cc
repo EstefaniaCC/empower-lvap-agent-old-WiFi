@@ -1045,7 +1045,7 @@ void EmpowerLVAPManager::send_incomming_mcast_address(EtherAddress mcast_address
 }
 
 void EmpowerLVAPManager::send_igmp_report(EtherAddress src,
-		Vector<IPAddress>* mcast_addresses, Vector<empower_igmp_record_type>* igmp_types) {
+		Vector<IPAddress>* mcast_addresses, Vector<enum empower_igmp_record_type>* igmp_types) {
 	int grouprecord_counter;
 
 	for (grouprecord_counter = 0; grouprecord_counter < mcast_addresses->size(); grouprecord_counter++)
