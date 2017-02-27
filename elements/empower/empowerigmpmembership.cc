@@ -69,7 +69,7 @@ void EmpowerIgmpMembership::push(int, Packet *p)
 	EtherAddress src = EtherAddress(eh->ether_shost);
 	//EtherAddress dst = EtherAddress(eh->ether_dhost);
 	Vector<IPAddress> mcast_addresses;
-	Vector<empower_igmp_record_type> igmp_types;
+	Vector<enum empower_igmp_record_type> igmp_types;
 	EmpowerStationState *ess = _el->get_ess(src);
 
 	unsigned short grouprecord_counter;
