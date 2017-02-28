@@ -19,6 +19,7 @@
 #include <click/straccum.hh>
 #include <click/packet_anno.hh>
 #include <click/error.hh>
+#include <click/ipaddress.hh>
 #include <clicknet/wifi.h>
 #include <clicknet/ip.h>
 #include <clicknet/ether.h>
@@ -51,7 +52,7 @@ void EmpowerIgmpMembership::push(int, Packet *p)
 
 	const click_ip *ip = p->ip_header();
 
-	void *igmpmessage = (void *) (p->data() + (ip->ip_hl * 4));
+	void *igmpmessage = (void *) (p->data() + 14 + ip->ip_hl * 4);
 	/* IGMP messages
 	 * RFC 1112 IGMPv1: 11= query 12= join group
 	 * RFC 2236 IGMPv2: 11= query 16= join group 17= leave group
