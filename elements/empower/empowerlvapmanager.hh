@@ -257,8 +257,9 @@ public:
 	int handle_add_busyness_trigger(Packet *, uint32_t);
 	int handle_del_busyness_trigger(Packet *, uint32_t);
 	int handle_busyness_request(Packet *, uint32_t);
-	int handle_incom_mcast_addr_response(Packet *p, uint32_t offset);
+	int handle_incom_mcast_addr_response(Packet *, uint32_t);
 	int handle_wtp_counters_request(Packet *, uint32_t);
+	int handle_del_mcast_addr(Packet *, uint32_t);
 
 	void send_hello();
 	void send_probe_request(EtherAddress, String, EtherAddress, int, empower_bands_types);

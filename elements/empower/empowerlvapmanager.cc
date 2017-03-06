@@ -1036,12 +1036,11 @@ void EmpowerLVAPManager::send_incomming_mcast_address(EtherAddress mcast_address
 	mcast_addr->set_wtp(_wtp);
 	mcast_addr->set_iface(iface);
 
-	click_chatter("%{element} :: %s :: The incomming mcast address %s packet is about to be sent from iface %d in wtp %s",
+	click_chatter("%{element} :: %s :: New mcast address %s address from iface %d in wtp %s",
 						  this,
 						  __func__, mcast_address.unparse().c_str(), iface, _wtp.unparse().c_str());
 
 	output(0).push(p);
-
 }
 
 void EmpowerLVAPManager::send_igmp_report(EtherAddress src,
@@ -1074,18 +1073,14 @@ void EmpowerLVAPManager::send_igmp_report(EtherAddress src,
 		igmp_request->set_sta(src);
 		igmp_request->set_igmp_type(igmp_types->at(grouprecord_counter));
 
-		click_chatter("%{element} :: %s :: The IGMP request type %d from sta %s for the mcast address %s packet is about to be sent from wtp %s",
+		click_chatter("%{element} :: %s :: IGMP request type %d from sta %s for the mcast address %s from wtp %s",
 							  this,
 							  __func__, igmp_types->at(grouprecord_counter), src.unparse().c_str(),
 							  mcast_addresses->at(grouprecord_counter).unparse().c_str(), _wtp.unparse().c_str());
 
 		output(0).push(p);
 	}
-
 }
-
-
-
 
 int EmpowerLVAPManager::handle_add_vap(Packet *p, uint32_t offset) {
 
@@ -1590,7 +1585,23 @@ int EmpowerLVAPManager::handle_incom_mcast_addr_response(Packet *p, uint32_t off
 
 	_rcs[iface]->tx_policies()->insert(mcast_addr, basic_rate, def_tx_policy->_no_ack, TX_MCAST_LEGACY, def_tx_policy->_ur_mcast_count, def_tx_policy->_rts_cts);
 	return 0;
+}
 
+int EmpowerLVAPManager::handle_del_mcast_addr(Packet *p, uint32_t offset) {
+
+	struct empower_del_mcast_addr *q = (struct empower_del_mcast_addr *) (p->data() + offset);
+	EtherAddress mcast_addr = q->mcast_addr();
+	EtherAddress hwaddr = q->hwaddr();
+	int channel = q->channel();
+	empower_bands_types band = (empower_bands_types) q->band();
+	int iface_id = element_to_iface(hwaddr, channel, band);
+
+	click_chatter("%{element} :: %s :: Receiving delete mcast address %s response",
+							  this,
+							  __func__, mcast_addr.unparse().c_str());
+
+	_rcs[iface_id]->tx_policies()->remove(mcast_addr);
+	return 0;
 }
 
 void EmpowerLVAPManager::push(int, Packet *p) {

@@ -84,6 +84,8 @@ enum empower_packet_types {
 	// IGMP messages
 	EMPOWER_PT_IGMP_REQUEST = 0x43,				// wtp -> ac
 
+	EMPOWER_PT_DEL_MCAST_ADDR = 0x44				// ac -> wtp
+
 };
 
 /* header format, common to all messages */
@@ -788,6 +790,20 @@ struct empower_igmp_request : public empower_header {
     void set_sta(EtherAddress sta)                  { memcpy(_sta, sta.data(), 6); }
     void set_mcast_addr(IPAddress mcast_addr) 	{ memcpy(_mcast_addr, mcast_addr.data(), 4); }
     void set_igmp_type(int igmp_type)         		{ _igmp_type = igmp_type; }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
+/* delete multicast address format */
+struct empower_del_mcast_addr : public empower_header {
+  private:
+    uint8_t  _mcast_addr[6]; 	/* EtherAddress */
+    uint8_t  _hwaddr[6];		/* EtherAddress */
+	uint8_t  _channel;			/* WiFi channel (int) */
+	uint8_t  _band;				/* WiFi band (empower_band_types) */
+  public:
+    EtherAddress mcast_addr() 	{ return EtherAddress(_mcast_addr); }
+    uint8_t      band()      { return _band; }
+	uint8_t      channel()   { return _channel; }
+	EtherAddress hwaddr()    { return EtherAddress(_hwaddr); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
 CLICK_ENDDECLS
