@@ -67,7 +67,6 @@ public:
 	EtherAddress ip_mcast_addr_to_mac(IPAddress ip)
 	{
 		unsigned long ip_addr = ntohl(ip.addr());
-		ip.addr()
 		unsigned char mac_addr[6] = {0x01, 0x0, 0x5e, 0x0, 0x0, 0x0};
 
 		mac_addr[5] = ip_addr & 0xff;
