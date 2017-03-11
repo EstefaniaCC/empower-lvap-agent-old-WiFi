@@ -9,7 +9,7 @@ CLICK_DECLS
 /*
 =c
 
-EmpowerIgmpMembership(RL, EL, [, I<KEYWORDS>])
+EmpowerMulticastTable(RL, EL, [, I<KEYWORDS>])
 
 =s EmPOWER
 
@@ -42,7 +42,7 @@ public:
 	EmpowerMulticastTable();
 	~EmpowerMulticastTable();
 
-	const char *class_name() const { return "EmpowerIgmpMembership"; }
+	const char *class_name() const { return "EmpowerMulticastTable"; }
 	const char *port_count() const { return "1/1"; }
 	const char *processing() const { return PUSH; }
 
