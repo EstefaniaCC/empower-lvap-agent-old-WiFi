@@ -52,6 +52,7 @@ public:
 private:
 
 	class EmpowerLVAPManager *_el;
+	class EmpowerMulticastTable * _mtbl;
 
 	bool _debug;
 

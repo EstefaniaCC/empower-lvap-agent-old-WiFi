@@ -101,14 +101,6 @@ EmpowerWifiEncap::push(int, Packet *p) {
 		output(0).push(p_out);
 		return;
 	}
-
-	char join_group [6] = {0x01, 0x00, 0x5e, 0x00, 0x00, 0x16};
-	    if (dst == EtherAddress((const unsigned char *) join_group))
-	    	click_chatter("%{element} :: %s :: IGMPPPPPPPPP EN ENCAP. src %s. dst %s",
-	    					      this,
-	    					      __func__, src.unparse().c_str(), dst.unparse().c_str());
-
-
 	// broadcast and multicast traffic, we need to transmit one frame for each unique
 	// bssid. this is due to the fact that we can have the same bssid for multiple LVAPs.
 	for (int i = 0; i < _el->num_ifaces(); i++) {

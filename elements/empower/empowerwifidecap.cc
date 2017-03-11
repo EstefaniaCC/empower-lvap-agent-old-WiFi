@@ -134,12 +134,6 @@ EmpowerWifiDecap::push(int, Packet *p) {
 		return;
 	}
 
-    char join_group [6] = {0x01, 0x00, 0x5e, 0x00, 0x00, 0x16};
-    if (dst == EtherAddress((const unsigned char *) join_group))
-    	click_chatter("%{element} :: %s :: IGMPPPPPPPPP. src %s. dst %s. bssid %s, ess bssid %s",
-    					      this,
-    					      __func__, src.unparse().c_str(), dst.unparse().c_str(), bssid.unparse().c_str(), ess->_lvap_bssid.unparse().c_str());
-
 	if (ess->_lvap_bssid != bssid) {
 		p->kill();
 		return;
