@@ -73,7 +73,7 @@ public:
 		mac_addr[4] = (ip_addr & 0xff00)>>8;
 		mac_addr[3] = (ip_addr & 0x7f0000)>>16;
 
-		EtherAddress mac = new EtherAddress (mac_addr);
+		EtherAddress mac = new EtherAddress (&mac_addr);
 
 		return mac;
 	}
