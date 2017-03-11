@@ -3,6 +3,7 @@
 #define CLICK_EMPOWERMULTICASTTABLE_HH
 #include <click/element.hh>
 #include <click/config.h>
+#include <click/etheraddress.hh>
 CLICK_DECLS
 
 /*
