@@ -66,7 +66,6 @@ bool EmpowerMulticastTable::addgroup(IPAddress group)
 
 	newgroup.mac_group = ip_mcast_addr_to_mac(group);
 	multicastgroups.push_back(newgroup);
-	const unsigned char *p = group.data();
 	return true;
 
 }
@@ -88,13 +87,13 @@ bool EmpowerMulticastTable::joingroup(EtherAddress sta, IPAddress group)
 				if ((*a).ess->_sta == sta)
 				{
 					click_chatter("%{element} :: %s :: Station %s already in group %x!",
-							this, __func__, sta.unparse().c_str(), group._addr);
+							this, __func__, sta.unparse().c_str(), (*i).group.addr());
 					return false;
 				}
 			}
 			(*i).receivers.push_back(new_receiver);
 			click_chatter("%{element} :: %s :: Station %s added to group %x!",
-					this, __func__, sta.unparse().c_str(), group._addr);
+					this, __func__, sta.unparse().c_str(), (*i).group.addr());
 		}
 	}
 
@@ -117,13 +116,13 @@ bool EmpowerMulticastTable::leavegroup(EtherAddress sta, IPAddress group)
 				{
 					(*i).receivers.erase(a);
 					click_chatter("%{element} :: %s :: Station %s added removed from group %x",
-										this, __func__, sta.unparse().c_str(), group._addr);
+										this, __func__, sta.unparse().c_str(), (*i).group.addr());
 					// The group is deleted if no more receivers belong to it
 					if ((*i).receivers.begin() == (*i).receivers.end())
 					{
 						multicastgroups.erase(i);
 						click_chatter("%{element} :: %s :: Group %s is empty. It is about to be deleted",
-																this, __func__, group._addr);
+																this, __func__, (*i).group.addr());
 						return true;
 					}
 					return true;
@@ -132,12 +131,12 @@ bool EmpowerMulticastTable::leavegroup(EtherAddress sta, IPAddress group)
 
 		}
 		click_chatter("%{element} :: %s :: IGMP leave group request received from station %s not found in group %x",
-													this, __func__, sta.unparse().c_str(), group._addr);
+													this, __func__, sta.unparse().c_str(), (*i).group.addr());
 	}
 	return false;
 }
 
-Vector<struct EmpowerMulticastReceiver> * EmpowerMulticastTable::getIGMPreceivers(EtherAddress group)
+Vector<EmpowerMulticastTable::EmpowerMulticastReceiver>* EmpowerMulticastTable::getIGMPreceivers(EtherAddress group)
 {
 	Vector<struct EmpowerMulticastGroup>::iterator i;
 
