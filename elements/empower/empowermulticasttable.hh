@@ -4,6 +4,7 @@
 #include <click/element.hh>
 #include <click/config.h>
 #include <click/etheraddress.hh>
+#include "empowerlvapmanager.hh"
 CLICK_DECLS
 
 /*
@@ -51,7 +52,7 @@ public:
 	void push(int, Packet *);
 
 	struct EmpowerMulticastReceiver {
-		EmpowerStationState *ess;
+		EtherAddress sta;
 		Vector<IPAddress> sources;
 	};
 

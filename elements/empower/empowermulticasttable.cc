@@ -73,7 +73,7 @@ bool EmpowerMulticastTable::addgroup(IPAddress group)
 bool EmpowerMulticastTable::joingroup(EtherAddress sta, IPAddress group)
 {
 	EmpowerMulticastReceiver new_receiver;
-	new_receiver.ess = _el->lvaps()->get_pointer(sta);
+	new_receiver.sta = sta;
 
 	Vector<EmpowerMulticastGroup>::iterator i;
 
@@ -84,7 +84,7 @@ bool EmpowerMulticastTable::joingroup(EtherAddress sta, IPAddress group)
 			Vector<EmpowerMulticastReceiver>::iterator a;
 			for (a = (*i).receivers.begin(); a != (*i).receivers.end(); a++)
 			{
-				if ((*a).ess->_sta == sta)
+				if ((*a).sta == sta)
 				{
 					click_chatter("%{element} :: %s :: Station %s already in group %x!",
 							this, __func__, sta.unparse().c_str(), (*i).group.addr());
@@ -112,7 +112,7 @@ bool EmpowerMulticastTable::leavegroup(EtherAddress sta, IPAddress group)
 			Vector<EmpowerMulticastReceiver>::iterator a;
 			for (a = (*i).receivers.begin(); a != (*i).receivers.end(); a++)
 			{
-				if ((*a).ess->_sta == sta)
+				if ((*a).sta == sta)
 				{
 					(*i).receivers.erase(a);
 					click_chatter("%{element} :: %s :: Station %s added removed from group %x",

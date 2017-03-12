@@ -116,19 +116,23 @@ EmpowerWifiEncap::push(int, Packet *p) {
 			// station.
 
 			Vector<EtherAddress> sent;
+			Vector<EmpowerMulticastTable :: EmpowerMulticastReceiver> * mcast_receivers = _el->get_mcast_table()->getIGMPreceivers(dst);
+			Vector<EmpowerMulticastTable :: EmpowerMulticastReceiver>::iterator a;
 
-			for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
-				EtherAddress sta = it.value()._sta;
-				if (it.value()._iface_id != i) {
+			for (a = mcast_receivers->begin() ; a != mcast_receivers->end(); a++)
+			{
+				EtherAddress sta = a->sta;
+				EmpowerStationState * ess = _el->lvaps()->get_pointer(sta);
+				if (ess->_iface_id != i) {
 					continue;
 				}
-				if (!it.value()._set_mask) {
+				if (!ess->_set_mask) {
 					continue;
 				}
-				if (!it.value()._authentication_status) {
+				if (!ess->_authentication_status) {
 					continue;
 				}
-				if (!it.value()._association_status) {
+				if (!ess->_association_status) {
 					continue;
 				}
 				if (find(sent.begin(), sent.end(), sta) != sent.end()) {
@@ -139,7 +143,7 @@ EmpowerWifiEncap::push(int, Packet *p) {
 				if (!q) {
 					continue;
 				}
-				Packet * p_out = wifi_encap(q, sta, src, it.value()._lvap_bssid);
+				Packet * p_out = wifi_encap(q, sta, src, ess->_lvap_bssid);
 				tx_policy->update_tx(p->length());
 				SET_PAINT_ANNO(p_out, i);
 				output(0).push(p_out);
