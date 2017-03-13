@@ -4,7 +4,6 @@
 #include <click/element.hh>
 #include <click/config.h>
 #include <click/etheraddress.hh>
-#include "empowerlvapmanager.hh"
 CLICK_DECLS
 
 /*
@@ -65,6 +64,10 @@ public:
 
 	EtherAddress ip_mcast_addr_to_mac(IPAddress ip)
 	{
+		click_chatter("%{element} :: %s :: CONVERSION IP",
+										  this,
+										  __func__);
+
 		unsigned long ip_addr = ntohl(ip.addr());
 		unsigned char mac_addr[6] = {0x01, 0x0, 0x5e, 0x0, 0x0, 0x0};
 
@@ -82,11 +85,10 @@ public:
 	//bool addsource(IPAddress, IPAddress, IPAddress);
 	//bool delsource(IPAddress, IPAddress, IPAddress);
 	bool leavegroup(EtherAddress, IPAddress);
+	bool leaveallgroups(EtherAddress);
 	Vector<struct EmpowerMulticastReceiver> *getIGMPreceivers(EtherAddress);
 
 private:
-
-	class EmpowerLVAPManager *_el;
 	bool _debug;
 
 	// Read/Write handlers

@@ -35,11 +35,12 @@
 #include "igmppacket.hh"
 #include "empowerrxstats.hh"
 #include "empowerfairbuffer.hh"
+#include "empowermulticasttable.hh"
 CLICK_DECLS
 
 EmpowerLVAPManager::EmpowerLVAPManager() :
 		_e11k(0), _ebs(0), _eauthr(0), _eassor(0), _edeauthr(0), _ers(0), _efb(0),
-		_timer(this), _seq(0), _period(5000), _debug(false) {
+		_timer(this), _mtbl(0), _seq(0), _period(5000), _debug(false) {
 }
 
 EmpowerLVAPManager::~EmpowerLVAPManager() {
@@ -91,6 +92,7 @@ int EmpowerLVAPManager::configure(Vector<String> &conf,
 			                    .read_m("RCS", rcs_strings)
 			                    .read_m("RES", res_strings)
 			                    .read_m("ERS", ElementCastArg("EmpowerRXStats"), _ers)
+								.read_m("MTBL", ElementCastArg("EmpowerMulticastTable"), _mtbl)
 			                    .read("EFB", ElementCastArg("EmpowerFairBuffer"), _efb)
 								.read("PERIOD", _period)
 			                    .read("DEBUG", _debug)
@@ -1412,6 +1414,9 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 	// If the bssids are different, this is a shared lvap and a deauth message should be sent before removing the lvap
 	if (ess->_lvap_bssid != ess->_net_bssid) {
 		_edeauthr->send_deauth_request(sta, 0x0001, ess->_iface_id);
+		// The receiver must me flush from all the groups in the multicast table
+		_mtbl->leaveallgroups(sta);
+
 	}
 
 	// erasing lvap
@@ -1584,6 +1589,13 @@ int EmpowerLVAPManager::handle_incom_mcast_addr_response(Packet *p, uint32_t off
 	basic_rate.push_back(*(def_tx_policy->_mcs.begin()));
 
 	_rcs[iface]->tx_policies()->insert(mcast_addr, basic_rate, def_tx_policy->_no_ack, TX_MCAST_LEGACY, def_tx_policy->_ur_mcast_count, def_tx_policy->_rts_cts);
+
+	for (TxTableIter it_txp = _rcs[iface]->tx_policies()->tx_table()->begin(); it_txp.live(); it_txp++) {
+		click_chatter("%{element} :: %s :: Check policies %s, %d",
+										  this,
+										  __func__, it_txp.key().unparse().c_str(), it_txp.value()->_tx_mcast);
+				}
+
 	return 0;
 }
 

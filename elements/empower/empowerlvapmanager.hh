@@ -12,6 +12,7 @@
 #include "empowerrxstats.hh"
 #include "empowerpacket.hh"
 #include "igmppacket.hh"
+#include "empowermulticasttable.hh"
 CLICK_DECLS
 
 /*
@@ -348,6 +349,7 @@ private:
 	class EmpowerDeAuthResponder *_edeauthr;
 	class EmpowerRXStats *_ers;
 	class EmpowerFairBuffer *_efb;
+	class EmpowerMulticastTable * _mtbl;
 
 	String _empower_iface;
 	EtherAddress _empower_hwaddr;

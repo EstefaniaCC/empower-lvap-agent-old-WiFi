@@ -121,6 +121,14 @@ EmpowerWifiEncap::push(int, Packet *p) {
 			Vector<EmpowerMulticastTable :: EmpowerMulticastReceiver> * mcast_receivers = _mtbl->getIGMPreceivers(dst);
 			Vector<EmpowerMulticastTable :: EmpowerMulticastReceiver>::iterator a;
 
+			if (!mcast_receivers)
+			{
+				click_chatter("%{element} :: %s :: Null pointer for mcast_receivers in encap",
+													  this,
+													  __func__);
+				continue;
+			}
+
 			for (a = mcast_receivers->begin() ; a != mcast_receivers->end(); a++)
 			{
 				EtherAddress sta = a->sta;

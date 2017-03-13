@@ -134,7 +134,7 @@ void EmpowerIgmpMembership::push(int, Packet *p)
 			v1andv2message = (igmpv1andv2message *) igmpmessage;
 			igmp_types.push_back(V2_LEAVE_GROUP);
 			mcast_addresses.push_back(IPAddress(v1andv2message->group));
-			_mtbl->leavegroup(src, IPAddress(ip->ip_dst));
+			_mtbl->leavegroup(src, IPAddress(v1andv2message->group));
 			break;
 		}
 		case 0x22:
@@ -157,7 +157,7 @@ void EmpowerIgmpMembership::push(int, Packet *p)
 							__func__);
 					igmp_types.push_back(V3_MODE_IS_INCLUDE);
 					mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
-					_mtbl->leavegroup(src, IPAddress(ip->ip_dst));
+					_mtbl->leavegroup(src, IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
 					break;
 
 				case 0x02:
@@ -165,8 +165,8 @@ void EmpowerIgmpMembership::push(int, Packet *p)
 							__func__);
 					igmp_types.push_back(V3_MODE_IS_EXCLUDE);
 					mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
-					_mtbl->addgroup(IPAddress(ip->ip_dst));
-					_mtbl->joingroup(src, IPAddress(ip->ip_dst));
+					_mtbl->addgroup(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+					_mtbl->joingroup(src, IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
 					break;
 
 				case 0x03:
@@ -175,7 +175,7 @@ void EmpowerIgmpMembership::push(int, Packet *p)
 							this, __func__);
 					igmp_types.push_back(V3_CHANGE_TO_INCLUDE_MODE);
 					mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
-					_mtbl->leavegroup(src, IPAddress(ip->ip_dst));
+					_mtbl->leavegroup(src, IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
 					break;
 				case 0x04:
 					click_chatter(
@@ -183,8 +183,8 @@ void EmpowerIgmpMembership::push(int, Packet *p)
 							this, __func__);
 					igmp_types.push_back(V3_CHANGE_TO_EXCLUDE_MODE);
 					mcast_addresses.push_back(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
-					_mtbl->addgroup(IPAddress(ip->ip_dst));
-					_mtbl->joingroup(src, IPAddress(ip->ip_dst));
+					_mtbl->addgroup(IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
+					_mtbl->joingroup(src, IPAddress(v3report->grouprecords[grouprecord_counter].multicast_address));
 					break;
 				case 0x05:
 					//TODO: "ALLOW_NEW_SOURCES". Sources management
