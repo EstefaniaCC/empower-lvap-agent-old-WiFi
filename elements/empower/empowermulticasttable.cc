@@ -48,11 +48,6 @@ int EmpowerMulticastTable::configure(Vector<String> &conf,
 
 }
 
-void EmpowerMulticastTable::push(int, Packet *p)
-{
-
-}
-
 bool EmpowerMulticastTable::addgroup(IPAddress group)
 {
 	EmpowerMulticastGroup newgroup;

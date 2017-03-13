@@ -44,12 +44,10 @@ public:
 	~EmpowerMulticastTable();
 
 	const char *class_name() const { return "EmpowerMulticastTable"; }
-	const char *port_count() const { return "1/1"; }
-	const char *processing() const { return PUSH; }
+	const char *port_count() const { return PORTS_0_0; }
 
 	int configure(Vector<String> &, ErrorHandler *);
 	void add_handlers();
-	void push(int, Packet *);
 
 	struct EmpowerMulticastReceiver {
 		EtherAddress sta;
