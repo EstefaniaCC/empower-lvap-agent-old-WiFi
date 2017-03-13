@@ -35,12 +35,11 @@
 #include "igmppacket.hh"
 #include "empowerrxstats.hh"
 #include "empowerfairbuffer.hh"
-#include "empowermulticasttable.hh"
 CLICK_DECLS
 
 EmpowerLVAPManager::EmpowerLVAPManager() :
 		_e11k(0), _ebs(0), _eauthr(0), _eassor(0), _edeauthr(0), _ers(0), _efb(0),
-		_timer(this), _seq(0), _period(5000), _mtbl(0), _debug(false) {
+		_timer(this), _seq(0), _period(5000), _debug(false) {
 }
 
 EmpowerLVAPManager::~EmpowerLVAPManager() {
@@ -92,7 +91,6 @@ int EmpowerLVAPManager::configure(Vector<String> &conf,
 			                    .read_m("RCS", rcs_strings)
 			                    .read_m("RES", res_strings)
 			                    .read_m("ERS", ElementCastArg("EmpowerRXStats"), _ers)
-								.read_m("MTBL", ElementCastArg("EmpowerMulticastTable"), _mtbl)
 			                    .read("EFB", ElementCastArg("EmpowerFairBuffer"), _efb)
 								.read("PERIOD", _period)
 			                    .read("DEBUG", _debug)

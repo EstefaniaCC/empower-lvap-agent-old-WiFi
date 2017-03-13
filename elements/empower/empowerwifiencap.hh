@@ -5,6 +5,7 @@
 #include <click/element.hh>
 #include <clicknet/ether.h>
 #include <click/etheraddress.hh>
+#include "empowermulticasttable.hh"
 CLICK_DECLS
 
 /*
@@ -53,6 +54,7 @@ public:
 private:
 
 	class EmpowerLVAPManager *_el;
+	class EmpowerMulticastTable * _mtbl;
 
 	bool _debug;
 

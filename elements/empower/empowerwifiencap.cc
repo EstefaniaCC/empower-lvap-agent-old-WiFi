@@ -30,10 +30,11 @@
 #include <elements/wifi/transmissionpolicy.hh>
 #include <elements/wifi/minstrel.hh>
 #include "empowerlvapmanager.hh"
+#include "empowermulticasttable.hh"
 CLICK_DECLS
 
 EmpowerWifiEncap::EmpowerWifiEncap() :
-		_el(0), _debug(false) {
+		_el(0), _mtbl(0), _debug(false) {
 }
 
 EmpowerWifiEncap::~EmpowerWifiEncap() {
@@ -44,6 +45,7 @@ int EmpowerWifiEncap::configure(Vector<String> &conf,
 
 	return Args(conf, this, errh)
 			.read_m("EL", ElementCastArg("EmpowerLVAPManager"), _el)
+			.read_m("MTBL", ElementCastArg("EmpowerMulticastTable"), _mtbl)
 			.read("DEBUG", _debug)
 			.complete();
 
@@ -116,7 +118,7 @@ EmpowerWifiEncap::push(int, Packet *p) {
 			// station.
 
 			Vector<EtherAddress> sent;
-			Vector<EmpowerMulticastTable :: EmpowerMulticastReceiver> * mcast_receivers = _el->get_mcast_table()->getIGMPreceivers(dst);
+			Vector<EmpowerMulticastTable :: EmpowerMulticastReceiver> * mcast_receivers = _mtbl->getIGMPreceivers(dst);
 			Vector<EmpowerMulticastTable :: EmpowerMulticastReceiver>::iterator a;
 
 			for (a = mcast_receivers->begin() ; a != mcast_receivers->end(); a++)

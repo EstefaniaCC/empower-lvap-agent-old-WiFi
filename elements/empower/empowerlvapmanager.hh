@@ -12,7 +12,6 @@
 #include "empowerrxstats.hh"
 #include "empowerpacket.hh"
 #include "igmppacket.hh"
-#include "empowermulticasttable.hh"
 CLICK_DECLS
 
 /*
@@ -333,11 +332,6 @@ public:
 		_rcs[iface_id]->tx_policies()->insert(eth, mcs, no_ack, tx_mcast, ur_mcast_count, rts_cts);
 	}
 
-	EmpowerMulticastTable * get_mcast_table()
-	{
-		return _mtbl;
-	}
-
 private:
 
 	ReadWriteLock _ports_lock;
@@ -354,7 +348,6 @@ private:
 	class EmpowerDeAuthResponder *_edeauthr;
 	class EmpowerRXStats *_ers;
 	class EmpowerFairBuffer *_efb;
-	class EmpowerMulticastTable * _mtbl;
 
 	String _empower_iface;
 	EtherAddress _empower_hwaddr;
