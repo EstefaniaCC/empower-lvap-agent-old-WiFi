@@ -3,6 +3,7 @@
 #define CLICK_EMPOWERIGMPMEMBERSHIP_HH
 #include <click/element.hh>
 #include <click/config.h>
+#include "empowermulticasttable.hh"
 CLICK_DECLS
 
 /*
