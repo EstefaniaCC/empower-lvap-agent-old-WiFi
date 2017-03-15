@@ -1616,6 +1616,24 @@ int EmpowerLVAPManager::handle_del_mcast_addr(Packet *p, uint32_t offset) {
 	return 0;
 }
 
+int EmpowerLVAPManager::handle_del_mcast_receiver(Packet *p, uint32_t offset) {
+
+	struct empower_del_mcast_receiver *q = (struct empower_del_mcast_receiver *) (p->data() + offset);
+	EtherAddress sta = q->sta();
+	EtherAddress hwaddr = q->hwaddr();
+	int channel = q->channel();
+	empower_bands_types band = (empower_bands_types) q->band();
+	int iface_id = element_to_iface(hwaddr, channel, band);
+
+	click_chatter("%{element} :: %s :: Receiving delete mcast receiver %s response",
+							  this,
+							  __func__, sta.unparse().c_str());
+
+	_mtbl->leaveallgroups(sta);
+
+	return 0;
+}
+
 void EmpowerLVAPManager::push(int, Packet *p) {
 
 	/* This is a control packet coming from a Socket

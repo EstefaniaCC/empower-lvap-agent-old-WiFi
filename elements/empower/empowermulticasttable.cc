@@ -50,7 +50,7 @@ bool EmpowerMulticastTable::addgroup(IPAddress group)
 {
 	const unsigned char *p = group.data();
 
-	click_chatter("%{element} :: %s :: ADD GROUP for %d.%d.%d.%d",
+	click_chatter("%{element} :: %s :: Adding IGMP group %d.%d.%d.%d",
 										  this,
 										  __func__, p[0], p[1], p[2], p[3]);
 
@@ -73,10 +73,6 @@ bool EmpowerMulticastTable::joingroup(EtherAddress sta, IPAddress group)
 {
 	const unsigned char *p = group.data();
 
-	click_chatter("%{element} :: %s :: JOIN GROUP for %d.%d.%d.%d",
-										  this,
-										  __func__, p[0], p[1], p[2], p[3]);
-
 	EmpowerMulticastReceiver new_receiver;
 	new_receiver.sta = sta;
 
@@ -91,14 +87,14 @@ bool EmpowerMulticastTable::joingroup(EtherAddress sta, IPAddress group)
 			{
 				if ((*a).sta == sta)
 				{
-					click_chatter("%{element} :: %s :: Station %s already in group %d.%d.%d.%d!",
+					click_chatter("%{element} :: %s :: Station %s already in IGMP group %d.%d.%d.%d!",
 							this, __func__, sta.unparse().c_str(), (*i).group.data()[0], (*i).group.data()[1],
 							(*i).group.data()[2], (*i).group.data()[3]);
 					return false;
 				}
 			}
 			(*i).receivers.push_back(new_receiver);
-			click_chatter("%{element} :: %s :: Station %s added to group %d.%d.%d.%d!",
+			click_chatter("%{element} :: %s :: Station %s added to IGMP group %d.%d.%d.%d!",
 					this, __func__, sta.unparse().c_str(), (*i).group.data()[0], (*i).group.data()[1],
 					(*i).group.data()[2], (*i).group.data()[3]);
 		}
@@ -107,14 +103,9 @@ bool EmpowerMulticastTable::joingroup(EtherAddress sta, IPAddress group)
 	return true;
 }
 
-
 bool EmpowerMulticastTable::leavegroup(EtherAddress sta, IPAddress group)
 {
 	const unsigned char *p = group.data();
-
-	click_chatter("%{element} :: %s :: LEAVE GROUP for %d.%d.%d.%d",
-										  this,
-										  __func__, p[0], p[1], p[2], p[3]);
 
 	Vector<EmpowerMulticastGroup>::iterator i;
 
@@ -128,7 +119,7 @@ bool EmpowerMulticastTable::leavegroup(EtherAddress sta, IPAddress group)
 				if ((*a).sta == sta)
 				{
 					(*i).receivers.erase(a);
-					click_chatter("%{element} :: %s :: Station %s added removed from group %d.%d.%d.%d",
+					click_chatter("%{element} :: %s :: Station %s added removed from IGMP group %d.%d.%d.%d",
 										this, __func__, sta.unparse().c_str(),
 										(*i).group.data()[0], (*i).group.data()[1],
 										(*i).group.data()[2], (*i).group.data()[3]);
@@ -136,7 +127,7 @@ bool EmpowerMulticastTable::leavegroup(EtherAddress sta, IPAddress group)
 					if ((*i).receivers.begin() == (*i).receivers.end())
 					{
 						multicastgroups.erase(i);
-						click_chatter("%{element} :: %s :: Group %d.%d.%d.%d is empty. It is about to be deleted",
+						click_chatter("%{element} :: %s :: IGMP group %d.%d.%d.%d is empty. It is about to be deleted",
 																this, __func__, (*i).group.data()[0], (*i).group.data()[1],
 																(*i).group.data()[2], (*i).group.data()[3]);
 						return true;
@@ -155,27 +146,20 @@ bool EmpowerMulticastTable::leavegroup(EtherAddress sta, IPAddress group)
 
 Vector<EmpowerMulticastTable::EmpowerMulticastReceiver>* EmpowerMulticastTable::getIGMPreceivers(EtherAddress group)
 {
-	click_chatter("%{element} :: %s :: RECEIVERS",
-										  this,
-										  __func__);
-
 	Vector<struct EmpowerMulticastGroup>::iterator i;
 
 	for (i = multicastgroups.begin(); i != multicastgroups.end(); i++)
 	{
 		if (i->mac_group == group)
 		{
-			click_chatter("%{element} :: %s :: Group %s found. The pointer should not be null %p",
-													  this,
-													  __func__, group.unparse().c_str(), &(i->receivers));
 			return &(i->receivers);
 			break;
 		}
 	}
 
-	click_chatter("%{element} :: %s :: Group %s not found. The pointer is null",
+	click_chatter("%{element} :: %s :: IGMP group %s not found.",
 														  this,
-														  __func__, group.unparse().c_str(), &(i->receivers));
+														  __func__, group.unparse().c_str());
 
 	return NULL;
 }
@@ -183,7 +167,7 @@ Vector<EmpowerMulticastTable::EmpowerMulticastReceiver>* EmpowerMulticastTable::
 bool EmpowerMulticastTable::leaveallgroups(EtherAddress sta)
 {
 
-	click_chatter("%{element} :: %s :: Leave all groups for sta %s",
+	click_chatter("%{element} :: %s :: Station %s is about to leave all IGMP groups",
 										  this,
 										  __func__, sta.unparse().c_str());
 
@@ -197,7 +181,7 @@ bool EmpowerMulticastTable::leaveallgroups(EtherAddress sta)
 			if ((*a).sta == sta)
 			{
 				(*i).receivers.erase(a);
-				click_chatter("%{element} :: %s :: Station %s removed from group %d.%d.%d.%d",
+				click_chatter("%{element} :: %s :: Station %s removed from  IGMP group %d.%d.%d.%d",
 									this, __func__, sta.unparse().c_str(),
 									(*i).group.data()[0], (*i).group.data()[1],
 									(*i).group.data()[2], (*i).group.data()[3]);
@@ -205,7 +189,7 @@ bool EmpowerMulticastTable::leaveallgroups(EtherAddress sta)
 				if ((*i).receivers.begin() == (*i).receivers.end())
 				{
 					multicastgroups.erase(i);
-					click_chatter("%{element} :: %s :: Group %d.%d.%d.%d is empty. It is about to be deleted",
+					click_chatter("%{element} :: %s :: IGMP group %d.%d.%d.%d is empty. It is about to be deleted",
 															this, __func__, (*i).group.data()[0], (*i).group.data()[1],
 															(*i).group.data()[2], (*i).group.data()[3]);
 				}

@@ -122,12 +122,7 @@ EmpowerWifiEncap::push(int, Packet *p) {
 			Vector<EmpowerMulticastTable :: EmpowerMulticastReceiver>::iterator a;
 
 			if (!mcast_receivers)
-			{
-				click_chatter("%{element} :: %s :: Null pointer for mcast_receivers in encap",
-													  this,
-													  __func__);
 				continue;
-			}
 
 			for (a = mcast_receivers->begin() ; a != mcast_receivers->end(); a++)
 			{
@@ -165,9 +160,8 @@ EmpowerWifiEncap::push(int, Packet *p) {
 
 		} else {
 
-			if (!dst.is_broadcast() && mcast_tx_policy == 0)
+			if ((dst.data()[0] == 0x01) && (dst.data()[1] == 0x00) && (dst.data()[2] == 0x5e) && !mcast_tx_policy)
 			{
-
 				click_chatter("%{element} :: %s :: The multicast address %s is not found in the tx_policy table. Sending request to the controller for iface %d",
 																 this,
 																 __func__,
@@ -176,37 +170,81 @@ EmpowerWifiEncap::push(int, Packet *p) {
 				_el->send_incomming_mcast_address(dst, i);
 			}
 
-			// legacy mcast policy, just send the frame as it is, minstrel will
-			// pick the rate from the transmission policies table
+			if (mcast_tx_policy)
+			{
+				Vector<EtherAddress> sent;
+				Vector<EmpowerMulticastTable :: EmpowerMulticastReceiver> * mcast_receivers = _mtbl->getIGMPreceivers(dst);
+				Vector<EmpowerMulticastTable :: EmpowerMulticastReceiver>::iterator a;
 
-			Vector<EtherAddress> sent;
+				if (!mcast_receivers)
+					continue;
 
-			for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
-				EtherAddress bssid = it.value()._lvap_bssid;
-				if (it.value()._iface_id != i) {
-					continue;
+				for (a = mcast_receivers->begin() ; a != mcast_receivers->end(); a++)
+				{
+					EtherAddress sta = a->sta;
+					EmpowerStationState * ess = _el->lvaps()->get_pointer(sta);
+					EtherAddress bssid = ess->_lvap_bssid;
+					if (ess->_iface_id != i) {
+						continue;
+					}
+					if (!ess->_set_mask) {
+						continue;
+					}
+					if (!ess->_authentication_status) {
+						continue;
+					}
+					if (!ess->_association_status) {
+						continue;
+					}
+					if (find(sent.begin(), sent.end(), sta) != sent.end()) {
+						continue;
+					}
+					sent.push_back(bssid);
+					Packet *q = p->clone();
+					if (!q) {
+						continue;
+					}
+					Packet * p_out = wifi_encap(q, dst, src, bssid);
+					tx_policy->update_tx(p->length());
+					SET_PAINT_ANNO(p_out, i);
+					output(0).push(p_out);
 				}
-				if (!it.value()._set_mask) {
-					continue;
+
+			}
+			else
+			{
+				// legacy mcast policy, just send the frame as it is, minstrel will
+				// pick the rate from the transmission policies table
+
+				Vector<EtherAddress> sent;
+
+				for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
+					EtherAddress bssid = it.value()._lvap_bssid;
+					if (it.value()._iface_id != i) {
+						continue;
+					}
+					if (!it.value()._set_mask) {
+						continue;
+					}
+					if (!it.value()._authentication_status) {
+						continue;
+					}
+					if (!it.value()._association_status) {
+						continue;
+					}
+					if (find(sent.begin(), sent.end(), bssid) != sent.end()) {
+						continue;
+					}
+					sent.push_back(bssid);
+					Packet *q = p->clone();
+					if (!q) {
+						continue;
+					}
+					Packet * p_out = wifi_encap(q, dst, src, bssid);
+					tx_policy->update_tx(p->length());
+					SET_PAINT_ANNO(p_out, i);
+					output(0).push(p_out);
 				}
-				if (!it.value()._authentication_status) {
-					continue;
-				}
-				if (!it.value()._association_status) {
-					continue;
-				}
-				if (find(sent.begin(), sent.end(), bssid) != sent.end()) {
-					continue;
-				}
-				sent.push_back(bssid);
-				Packet *q = p->clone();
-				if (!q) {
-					continue;
-				}
-				Packet * p_out = wifi_encap(q, dst, src, bssid);
-				tx_policy->update_tx(p->length());
-				SET_PAINT_ANNO(p_out, i);
-				output(0).push(p_out);
 			}
 
 		}
