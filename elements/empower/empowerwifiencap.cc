@@ -110,7 +110,7 @@ EmpowerWifiEncap::push(int, Packet *p) {
 		TxPolicyInfo * tx_policy = _el->get_tx_policies(i)->lookup(dst);
 		TxPolicyInfo * mcast_tx_policy = _el->get_tx_policies(i)->supported(dst);
 
-		if (mcast_tx_policy && tx_policy->_tx_mcast == TX_MCAST_DMS) {
+		if (tx_policy->_tx_mcast == TX_MCAST_DMS) {
 			// dms mcast policy, duplicate the frame for each station in
 			// each bssid and use unicast destination addresses. note that
 			// a given station cannot be in more than one bssid, so just
@@ -196,7 +196,7 @@ EmpowerWifiEncap::push(int, Packet *p) {
 					if (!ess->_association_status) {
 						continue;
 					}
-					if (find(sent.begin(), sent.end(), sta) != sent.end()) {
+					if (find(sent.begin(), sent.end(), bssid) != sent.end()) {
 						continue;
 					}
 					sent.push_back(bssid);

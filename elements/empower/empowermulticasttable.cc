@@ -204,7 +204,7 @@ bool EmpowerMulticastTable::leaveallgroups(EtherAddress sta)
 
 
 enum {
-	H_DEBUG
+	H_DEBUG, H_MULTICAST_TABLE
 };
 
 String EmpowerMulticastTable::read_handler(Element *e, void *thunk) {
@@ -212,6 +212,23 @@ String EmpowerMulticastTable::read_handler(Element *e, void *thunk) {
 	switch ((uintptr_t) thunk) {
 	case H_DEBUG:
 		return String(td->_debug) + "\n";
+	case H_MULTICAST_TABLE: {
+		StringAccum sa;
+		Vector<EmpowerMulticastGroup>::iterator i;
+		for (i = td->multicastgroups.begin(); i != td->multicastgroups.end(); i++) {
+			sa << i->group.unparse() << " " <<  i->mac_group.unparse();
+
+			Vector<EmpowerMulticastReceiver>::iterator a;
+			sa << " receivers [ ";
+			for (a = (*i).receivers.begin(); a != (*i).receivers.end(); a++) {
+				sa << (*a).sta.unparse();
+				if (a != (*i).receivers.end())
+					sa << ", ";
+			}
+			sa << "]\n";
+		}
+		return sa.take_string();
+	}
 	default:
 		return String();
 	}
@@ -237,6 +254,7 @@ int EmpowerMulticastTable::write_handler(const String &in_s, Element *e,
 
 void EmpowerMulticastTable::add_handlers() {
 	add_read_handler("debug", read_handler, (void *) H_DEBUG);
+	add_read_handler("multicast_table", read_handler, (void *) H_MULTICAST_TABLE);
 	add_write_handler("debug", write_handler, (void *) H_DEBUG);
 }
 
