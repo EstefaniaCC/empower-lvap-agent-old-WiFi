@@ -618,6 +618,10 @@ void EmpowerLVAPManager::send_busyness_response(uint32_t busyness_id, EtherAddre
 
 	_ers->lock.acquire_read();
 	BusynessInfo *nfo = _ers->busyness.get_pointer(iface_id);
+
+	if (!nfo)
+		return;
+
 	uint32_t busyness = (uint32_t) nfo->_sma_busyness->avg();
 	_ers->lock.release_read();
 
