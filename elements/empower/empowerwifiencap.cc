@@ -117,7 +117,6 @@ EmpowerWifiEncap::push(int, Packet *p) {
 			// track if the frame has already been delivered to a given
 			// station.
 
-			Vector<EtherAddress> sent;
 			Vector<EmpowerMulticastTable :: EmpowerMulticastReceiver> * mcast_receivers = _mtbl->getIGMPreceivers(dst);
 			Vector<EmpowerMulticastTable :: EmpowerMulticastReceiver>::iterator a;
 
@@ -140,10 +139,7 @@ EmpowerWifiEncap::push(int, Packet *p) {
 				if (!ess->_association_status) {
 					continue;
 				}
-				if (find(sent.begin(), sent.end(), sta) != sent.end()) {
-					continue;
-				}
-				sent.push_back(sta);
+
 				Packet *q = p->clone();
 				if (!q) {
 					continue;
@@ -154,7 +150,7 @@ EmpowerWifiEncap::push(int, Packet *p) {
 				output(0).push(p_out);
 			}
 
-		} else if (mcast_tx_policy  && tx_policy->_tx_mcast == TX_MCAST_UR) {
+		} else if (tx_policy->_tx_mcast == TX_MCAST_UR) {
 
 			// TODO: implement
 

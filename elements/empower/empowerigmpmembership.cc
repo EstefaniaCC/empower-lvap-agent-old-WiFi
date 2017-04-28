@@ -75,6 +75,16 @@ void EmpowerIgmpMembership::push(int, Packet *p)
 	Vector<enum empower_igmp_record_type> igmp_types;
 	EmpowerStationState *ess = _el->get_ess(src);
 
+	if (!ess)
+	{
+		click_chatter("%{element} :: %s :: Unknown station %s",
+					  this,
+					  __func__,
+					  src.unparse().c_str());
+		p->kill();
+		return;
+	}
+
 	unsigned short grouprecord_counter;
 	igmpv1andv2message * v1andv2message;
 	igmpv3report * v3report;
