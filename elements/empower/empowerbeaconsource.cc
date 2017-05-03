@@ -58,7 +58,7 @@ void EmpowerBeaconSource::run_timer(Timer *) {
 	for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
 		for (int i = 0; i < it.value()._ssids.size(); i++) {
 			send_beacon(it.key(), it.value()._net_bssid, it.value()._ssids[i],
-					it.value()._channel, it.value()._iface_id, false);
+					it.value()._channel, it.value()._iface_id, false, false, 0, 0);
 		}
 	}
 
@@ -66,7 +66,7 @@ void EmpowerBeaconSource::run_timer(Timer *) {
 	for (VAPIter it = _el->vaps()->begin(); it.live(); it++) {
 		send_beacon(EtherAddress::make_broadcast(), it.value()._net_bssid,
 				it.value()._ssid, it.value()._channel, it.value()._iface_id,
-				false);
+				false, false, 0, 0);
 	}
 
 	// re-schedule the timer with some jitter
@@ -75,7 +75,8 @@ void EmpowerBeaconSource::run_timer(Timer *) {
 }
 
 void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
-		String ssid, int channel, int iface_id, bool probe) {
+		String ssid, int channel, int iface_id, bool probe,
+		bool channel_switch_mode, int new_channel, int channel_switch_count) {
 
 	/* order elements by standard
 	 * needed by sloppy 802.11b driver implementations
@@ -90,6 +91,7 @@ void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
 		2 + 1 + /* ds param */
 		2 + WIFI_RATES_MAXSIZE + /* xrates */
 		2 + 4 + /* tim */
+		2 + 6 + /* channel switch announcement */
 		2 + 26 + /* ht capabilities */
 		2 + 22 + /* ht information */
 		0;
@@ -186,6 +188,18 @@ void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
 		ptr[5] = 0; //partial virtual bitmap
 		ptr += 2 + 4;
 		actual_length += 2 + 4;
+	}
+
+	/* Channel switch */
+	if (new_channel != 0)
+	{
+		ptr[0] = WIFI_ELEMID_CHANSWITCHANN;
+		ptr[1] = 3; // length
+		ptr[2] = 0; // channel switch mode
+		ptr[3] = 1; // new channel number
+		ptr[4] = 0; // channel switch count
+		ptr += 2 + 6;
+		actual_length += 2 + 6;
 	}
 
 	/* extended supported rates */
@@ -561,13 +575,13 @@ void EmpowerBeaconSource::push(int, Packet *p) {
 		// reply with lvap's ssid
 		for (int i = 0; i < ess->_ssids.size(); i++) {
 			send_beacon(src, ess->_net_bssid, ess->_ssids[i], ess->_channel,
-					ess->_iface_id, true);
+					ess->_iface_id, true, false, 0, 0);
 		}
 
 		// reply also with all vaps
 		for (VAPIter it = _el->vaps()->begin(); it.live(); it++) {
 			send_beacon(src, it.value()._net_bssid, it.value()._ssid,
-					it.value()._channel, it.value()._iface_id, true);
+					it.value()._channel, it.value()._iface_id, true, false, 0, 0);
 		}
 
 	} else {
@@ -576,7 +590,7 @@ void EmpowerBeaconSource::push(int, Packet *p) {
 		for (int i = 0; i < ess->_ssids.size(); i++) {
 			if (ess->_ssids[i] == ssid) {
 				send_beacon(src, ess->_net_bssid, ssid, ess->_channel,
-						ess->_iface_id, true);
+						ess->_iface_id, true, false, 0, 0);
 				break;
 			}
 		}
@@ -585,7 +599,7 @@ void EmpowerBeaconSource::push(int, Packet *p) {
 		for (VAPIter it = _el->vaps()->begin(); it.live(); it++) {
 			if (it.value()._ssid == ssid) {
 				send_beacon(src, it.value()._net_bssid, it.value()._ssid,
-						it.value()._channel, it.value()._iface_id, true);
+						it.value()._channel, it.value()._iface_id, true, false, 0, 0);
 			}
 		}
 

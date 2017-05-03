@@ -62,7 +62,7 @@ public:
 	void add_handlers();
 	void run_timer(Timer *);
 
-	void send_beacon(EtherAddress, EtherAddress, String, int, int, bool);
+	void send_beacon(EtherAddress, EtherAddress, String, int, int, bool, bool, int, int);
 
 	void push(int, Packet *);
 
