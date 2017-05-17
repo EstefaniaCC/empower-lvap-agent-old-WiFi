@@ -1274,7 +1274,6 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 			EmpowerClientQueue queue;
 
 			queue._sta = sta;
-			queue._lvap_bssid = lvap_bssid;
 			queue._quantum = new_max_period;
 
 			_es->lvap_queues()->set(sta, queue);
