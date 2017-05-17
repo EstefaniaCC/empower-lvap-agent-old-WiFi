@@ -257,6 +257,7 @@ public:
 	int handle_busyness_request(Packet *, uint32_t);
 	int handle_wtp_counters_request(Packet *, uint32_t);
 	int handle_cqm_links_request(Packet *, uint32_t);
+	int handle_channel_switch_request(Packet *, uint32_t);
 
 	void send_hello();
 	void send_probe_request(EtherAddress, String, EtherAddress, int, empower_bands_types);
@@ -325,6 +326,12 @@ public:
 		return rc->tx_policies();
 	}
 
+	MinstrelDstInfo * get_dst_info(EtherAddress sta){
+		EmpowerStationState *ess = _lvaps.get_pointer(sta);
+		MinstrelDstInfo * nfo = _rcs.at(ess->_iface_id)->neighbors()->findp(sta);
+		return nfo;
+	}
+
 private:
 
 	ReadWriteLock _ports_lock;
@@ -341,6 +348,7 @@ private:
 	class EmpowerDeAuthResponder *_edeauthr;
 	class EmpowerRXStats *_ers;
 	class EmpowerCQM *_cqm;
+	class EmpowerScheduler *_es;
 
 	String _empower_iface;
 	EtherAddress _empower_hwaddr;

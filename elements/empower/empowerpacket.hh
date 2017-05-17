@@ -81,6 +81,9 @@ enum empower_packet_types {
 	EMPOWER_PT_CQM_LINKS_REQUEST = 0x43,        // ac -> wtp
 	EMPOWER_PT_CQM_LINKS_RESPONSE = 0x44,       // ac -> wtp
 
+	// Loadbalancing
+	EMPOWER_PT_CHANNEL_SWITCH_REQUEST = 0x50 	// ac -> wtp
+
 };
 
 /* header format, common to all messages */
@@ -788,6 +791,27 @@ struct empower_cqm_link {
     void set_p_pdr(uint32_t p_pdr) 						{ _p_pdr = htonl(p_pdr); }
     void set_p_available_bw(uint32_t p_available_bw) 	{ _p_available_bw = htonl(p_available_bw); }
     void set_ta(EtherAddress ta)   					    { memcpy(_ta, ta.data(), 6); }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
+struct empower_channel_switch_request : public empower_header {
+  private:
+    uint8_t _sta[6];	/* EtherAddress */
+    //uint8_t _hwaddr[6]; /* EtherAddress */
+    //uint8_t _channel;	/* WiFi channel (int) */
+    //uint8_t _band;		/* WiFi band (empower_bands_types) */
+    uint8_t _new_channel;	/* new channel number */
+    uint8_t _count;	/* channel switch count */
+    uint8_t _mode;	/* channel switch mode */
+    // char    _ssid[];	/* SSID (String) */
+  public:
+    EtherAddress sta()    	{ return EtherAddress(_sta); }
+	//EtherAddress hwaddr() 	{ return EtherAddress(_hwaddr); }
+	//uint8_t channel()     	{ return _channel; }
+	//uint8_t band()        	{ return _band; }
+	uint8_t new_channel()   { return _new_channel; }
+	uint8_t count()   		{ return _count; }
+	uint8_t mode()   		{ return _mode; }
+	//String  ssid()   	   	{ int len = length() - 17; return String((char *) _ssid, WIFI_MIN(len, WIFI_NWID_MAXSIZE)); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
 
