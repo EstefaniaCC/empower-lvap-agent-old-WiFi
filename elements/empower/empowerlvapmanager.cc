@@ -1731,7 +1731,7 @@ void EmpowerLVAPManager::push(int, Packet *p) {
 		case EMPOWER_PT_CQM_LINKS_REQUEST:
 			handle_cqm_links_request(p, offset);
 			break;
-		case EMPOWER_PT_SWITCH_CHANNEL_REQUEST:
+		case EMPOWER_PT_CHANNEL_SWITCH_REQUEST:
 			handle_channel_switch_request(p, offset);
 			break;
 		default:
