@@ -81,6 +81,7 @@ RadiotapDecap::simple_action(Packet *p) {
 			break;
 		case IEEE80211_RADIOTAP_CHANNEL:
 			ceh->channel = le16_to_cpu(*(uint16_t *)iter.this_arg);
+			ceh->channel_flags = *((uint16_t *)iter.this_arg + 1);
 			break;
 		case IEEE80211_RADIOTAP_DBM_ANTSIGNAL:
 			ceh->rssi = *iter.this_arg;

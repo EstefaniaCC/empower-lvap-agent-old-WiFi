@@ -9,6 +9,7 @@
 #include <elements/wifi/minstrel.hh>
 #include <elements/wifi/transmissionpolicy.hh>
 #include <elements/wifi/availablerates.hh>
+#include <include/clicknet/radiotap.h>
 #include "empowerpacket.hh"
 #include "empowerrxstats.hh"
 #include "empowercqm.hh"
@@ -22,6 +23,21 @@ EmpowerScheduler::EmpowerScheduler() :
 }
 
 EmpowerScheduler::~EmpowerScheduler() {
+	TransmissionTime phya = new TransmissionTime(16, 24, 12246, 134, 16, 34, 9, 15, 1023);
+	TransmissionTime phyb = new TransmissionTime(72, 48, 12224, 112, 10, 50, 20, 31, 1023);
+	TransmissionTime phyg = new TransmissionTime(16, 24, 12246, 134, 10, 50, 20, 31, 1023);
+	//TransmissionTime phyg = new TransmissionTime(16, 24, 12246, 134, 10, 28, 20, 15, 1023);
+
+	_waiting_times.set(EMPOWER_PHY_80211a, phya);
+	_waiting_times.set(EMPOWER_PHY_80211b, phyb);
+	_waiting_times.set(EMPOWER_PHY_80211g, phyg);
+
+	/*TransmissionTime phya = new TransmissionTime(16, 34, 9, 15, 1023);
+	TransmissionTime phybg = new TransmissionTime(10, 50, 20, 31, 1023);
+
+	_waiting_times.set(EMPOWER_PHY_80211a, phya);
+	_waiting_times.set(EMPOWER_PHY_80211bg, phybg);
+	*/
 }
 
 int EmpowerScheduler::configure(Vector<String> &conf,
@@ -51,8 +67,6 @@ EmpowerScheduler::push(int, Packet *p) {
 	uint8_t dir = w->i_fc[1] & WIFI_FC1_DIR_MASK;
 
 	EtherAddress dst;
-	EtherAddress src;
-	EtherAddress bssid;
 
 	switch (dir) {
 	case WIFI_FC1_DIR_NODS:
@@ -76,106 +90,158 @@ EmpowerScheduler::push(int, Packet *p) {
 		return;
 	}
 
+
 	// Let's assume only downlink traffic. The destination should be the client.
-	//_lvap_queues.get_pointer(dst)->_packets.push_back(*p);
 
+	EmpowerClientQueue * ecq = _lvap_queues.get_pointer(dst);
+	if (!ecq->_phy)
+	{
+		struct click_wifi_extra *ceh = WIFI_EXTRA_ANNO(p);
+		// In case the OFDM modulation is not found, this is a 11b client
+		if (!(ceh->channel_flags & IEEE80211_CHAN_OFDM))
+		{
 
-	int tail = _lvap_queues.get_pointer(dst)->_tail;
-	int head = _lvap_queues.get_pointer(dst)->_head;
-	int max_pkts = _lvap_queues.get_pointer(dst)->_max_size;
-	int nb_pkts = _lvap_queues.get_pointer(dst)->_nb_pkts;
-	//if ((tail + 1) %  max_pkts == head)
+		}
+	}
+	int tail = ecq->_tail;
+	int head = ecq->_head;
+	int max_pkts = ecq->_max_size;
+	int nb_pkts = ecq->_nb_pkts;
+
 	if (nb_pkts == max_pkts)
 	{
 		click_chatter("%{element} :: %s :: Packets buffer is full for station %s",
 							  this,
 							  __func__,
-							  src.unparse().c_str());
+							  dst.unparse().c_str());
 		p->kill();
 		return;
 	}
 
-	_lvap_queues.get_pointer(dst)->_packets[tail];
+	if (nb_pkts == 0)
+		_empty_scheduler_queues--;
+
+	ecq->_packets[tail] = p;
 	_lvap_queues.get_pointer(dst)->_tail = (tail + 1) % max_pkts;
 	// TODO. Return? destroy packet?
 
-	//notifiers.wakeup y sleep en pull si no hay colas
+
 	if (_empty_scheduler_queues == 0)
 		_notifier.wake();
-}
-
-
-Packet*
-EmpowerScheduler::schedule_packet()
-{
-	int i;
-	int nb_clients = _rr_order.size();
-
-	for (i = 0; i < nb_clients; i++)
-	{
-		bool first_queue_transm = true;
-		bool all_pkts_sent = false;
-		EtherAddress next_delireved_client = _rr_order.pop_front();
-
-		// Figure out how much time I need to deliver this packet.
-		EmpowerClientQueue * queue =  _lvap_queues.get_pointer(next_delireved_client);
-
-		if (queue->_nb_pkts == 0)
-		{
-			_empty_scheduler_queues ++;
-			continue;
-		}
-
-		queue->_quantum += _quantum_div;
-
-		while(queue->_nb_pkts > 0)
-		{
-			if (first_queue_transm)
-			{
-				_empty_scheduler_queues--;
-				first_queue_transm = false;
-			}
-
-			Packet * next_packet = queue->_packets[queue->_head];
-			MinstrelDstInfo * nfo = get_dst_info(next_delireved_client);
-			int8_t rate = nfo->rates[nfo->max_tp_rate];
-			uint32_t pkt_length = next_packet->length();
-
-			// time in seconds
-			float estimated_transm_time = (pkt_length * 8) / rate;
-
-			// There is not enough time for this client to deliver a packet. Let's move to the
-			// next client because any packet has been sent
-			//if (queue->_quantum < estimated_transm_time && !succ_transm)
-			if (queue->_quantum < estimated_transm_time)
-				continue;
-
-			// There is time to deliver the packet.
-			queue->_head = (queue->_head + 1) % queue->_max_size;
-			queue->_nb_pkts--;
-			queue->_quantum -= estimated_transm_time;
-
-			if (queue->_nb_pkts == 0)
-				_empty_scheduler_queues ++;
-
-			return next_packet;
-		}
-
-		_rr_order.push_back(next_delireved_client);
-	}
-
-	return 0;
 }
 
 
 Packet *
 EmpowerScheduler::pull(int)
 {
-	if (_lvap_queues.size() == _empty_scheduler_queues)
-		_notifier.sleep();
+	bool delivered_packet = false;
 
-    Packet *p = schedule_packet();
-	return p;
+	if (_lvap_queues.size() == _empty_scheduler_queues)
+	{
+		_notifier.sleep();
+		return 0;
+	}
+
+	while (!delivered_packet && _lvap_queues.size() != _empty_scheduler_queues)
+	{
+		EtherAddress next_delireved_client = _rr_order.pop_front();
+		EmpowerClientQueue * queue =  _lvap_queues.get_pointer(next_delireved_client);
+
+		if (queue->_nb_pkts == 0)
+		{
+			queue->_quantum = 0;
+			_empty_scheduler_queues ++;
+		}
+		else
+		{
+			if (queue->_first_pkt)
+			{
+				queue->_quantum += _quantum_div;
+				queue->_first_pkt = false;
+			}
+			// compute time
+			Packet * next_packet = queue->_packets[queue->_head];
+			float estimated_transm_time = pkt_transmission_time(next_delireved_client, next_packet);
+
+			if (queue->_quantum >= estimated_transm_time)
+			{
+				delivered_packet = true;
+				queue->_head = (queue->_head + 1) % queue->_max_size;
+				queue->_nb_pkts--;
+				return next_packet;
+			}
+		}
+		queue->_first_pkt = true;
+		_rr_order.push_back(next_delireved_client);
+	}
+	return 0;
+}
+
+float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, Packet * next_packet)
+{
+	MinstrelDstInfo * nfo = get_dst_info(next_delireved_client);
+
+	EmpowerClientQueue * queue =  _lvap_queues.get_pointer(next_delireved_client);
+	int8_t rate = (nfo->rates[nfo->max_tp_rate])/2;
+	uint32_t pkt_length = next_packet->length();
+	int8_t lowest_rate = (nfo->rates[0])/2;
+
+	struct click_wifi_extra *ceh = WIFI_EXTRA_ANNO(next_packet);
+
+
+	TransmissionTime tt = _waiting_times.get(queue->_phy);
+
+
+	int nb_retransm = (int) (nfo->probability[nfo->max_tp_rate] + 0.5); // To truncate properly
+
+
+	float estimated_time = 0;
+	int max_retries = ceh->max_tries;
+	int max_retries1 = max_retries + ceh->max_tries1;
+	int max_retries2 = max_retries1 + ceh->max_tries2;
+	int max_retries3 = max_retries2 + ceh->max_tries3;
+
+	for (int i = 1; i <= nb_retransm; i++)
+	{
+		if (i <= max_retries)
+		{
+			float backoff_time = (i*tt._cw_max + tt._cw_min) / 2;
+			float payload_time = (pkt_length * 8) / ceh->rate;
+			float data_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate) + (tt._mac_header_body/ceh->rate) + payload_time;
+			float ack_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate) + (tt._ack_mac_header/ceh->rate);
+			estimated_time += tt._difs + backoff_time + tt._sifs + data_time + ack_time;
+			max_retries--;
+		}
+		else if (i <= max_retries1)
+		{
+			float backoff_time = (i*tt._cw_max + tt._cw_min) / 2;
+			float payload_time = (pkt_length * 8) / ceh->rate1;
+			float data_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate1) + (tt._mac_header_body/ceh->rate1) + payload_time;
+			float ack_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate1) + (tt._ack_mac_header/ceh->rate1);
+			estimated_time += tt._difs + backoff_time + tt._sifs + data_time + ack_time;
+			max_retries1--;
+		}
+		else if (i <= max_retries2)
+		{
+			float backoff_time = (i*tt._cw_max + tt._cw_min) / 2;
+			float payload_time = (pkt_length * 8) / ceh->rate2;
+			float data_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate2) + (tt._mac_header_body/ceh->rate2) + payload_time;
+			float ack_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate2) + (tt._ack_mac_header/ceh->rate2);
+			estimated_time += tt._difs + backoff_time + tt._sifs + data_time + ack_time;
+			max_retries2--;
+		}
+		else if (i <= max_retries3)
+		{
+			float backoff_time = (i*tt._cw_max + tt._cw_min) / 2;
+			float payload_time = (pkt_length * 8) / ceh->rate3;
+			float data_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate3) + (tt._mac_header_body/ceh->rate3) + payload_time;
+			float ack_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate3) + (tt._ack_mac_header/ceh->rate3);
+			estimated_time += tt._difs + backoff_time + tt._sifs + data_time + ack_time;
+			max_retries3--;
+		}
+	}
+
+	return estimated_time;
 }
 
 

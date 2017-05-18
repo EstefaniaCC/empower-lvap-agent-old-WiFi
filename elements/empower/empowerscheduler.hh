@@ -59,17 +59,73 @@ Turn debug on/off
 class EmpowerClientQueue {
 public:
 	EtherAddress _sta;
-	//Vector <Packet*> _packets;
 	int _head = 0;
 	int _tail = 0;
-	int _max_size = 1000;
+	static int _max_size = 1000;
 	int _nb_pkts = 0;
 	Packet* _packets[_max_size] = {};
 	int _quantum;
+	bool _first_pkt = true;
+	empower_phy_types _phy;
 };
+
+enum empower_phy_types {
+    EMPOWER_PHY_80211a = 0x00,
+    EMPOWER_PHY_80211b = 0x01,
+	EMPOWER_PHY_80211g = 0x02
+};
+
+class TransmissionTime {
+public:
+	int _plcp_preamb;
+	int _plcp_header;
+	int _mac_header_body;
+	int _ack_mac_header;
+	int _sifs;
+	int _difs;
+	int _slot_time;
+	int _cw_min;
+	int _cw_max;
+
+TransmissionTime::TransmissionTime(int plcp_reamb, int plcp_header, int mac_header_body, int ack_mac_header,
+		int sifs, int difs, int slot_time, int cw_min, int cw_max) {
+		_plcp_preamb = plcp_reamb; // microsec
+		_plcp_header = plcp_header;
+		_mac_header_body = mac_header_body;
+		_ack_mac_header = ack_mac_header;
+		_sifs = sifs;
+		_difs = difs;
+		_slot_time = slot_time;
+		_cw_min = cw_min;
+		_cw_max = cw_max;
+	}
+};
+
+
+/*
+class TransmissionTime {
+public:
+	int _sifs;
+	int _difs;
+	int _slot_time;
+	int _cw_min;
+	int _cw_max;
+
+TransmissionTime::TransmissionTime(int sifs, int difs, int slot_time, int cw_min, int cw_max) {
+		_sifs = sifs;
+		_difs = difs;
+		_slot_time = slot_time;
+		_cw_min = cw_min;
+		_cw_max = cw_max;
+	}
+};
+*/
 
 typedef HashTable<EtherAddress, EmpowerClientQueue> LVAPQueues;
 typedef LVAPQueues::iterator LVAPQueuesIter;
+
+typedef HashTable<enum empower_phy_types, TransmissionTime> TransmissionTimes;
+typedef TransmissionTimes::iterator TransmissionTimesIter;
 
 class EmpowerScheduler: public Element {
 public:
@@ -89,6 +145,8 @@ public:
 	Vector * rr_order(){return &_rr_order;}
 	Packet* schedule_packet();
 	float quantum_division() {return _quantum_div;}
+	float pkt_transmission_time(EtherAddress, Packet *);
+
 
 	void update_quantum(float new_quantum)
 	{
@@ -100,34 +158,48 @@ public:
 		_rr_order.push_back(sta);
 	}
 
-	void remove_queue_order(EtherAddress sta)
-	{
-		_rr_order.erase(sta);
-	}
-
 	MinstrelDstInfo * get_dst_info(EtherAddress sta){
-		//EmpowerStationState *ess = _lvaps.get_pointer(sta);
-		//MinstrelDstInfo * nfo = _rcs.at(ess->_iface_id)->neighbors()->findp(sta);
-		//return nfo;
 		MinstrelDstInfo * nfo =_rc->neighbors()->findp(sta);
 		return nfo;
 	}
 
+	void release_queue(EtherAddress sta)
+	{
+		EmpowerClientQueue *ec = _lvap_queues.get_pointer(sta);
+		// Delete all the remaining packets in the queue
+		while(ec->_nb_pkts > 0)
+		{
+			ec->_packets[ec->_head]->kill();
+			ec->_head = (ec->_head + 1) % ec->_max_size;
+			ec->_nb_pkts--;
+		}
+		// Delete the queue
+		_lvap_queues.erase(sta);
+		// Delete it from the ordered queue
+		int index = -1;
+		for (int i = 0; i < _rr_order.size(); i++)
+		{
+			if (_rr_order.at(0) == sta)
+			{
+				index = i;
+				break;
+			}
+		}
+		_rr_order.erase(_rr_order.begin() + index);
+	}
+
 
 private:
-
-	//class EmpowerLVAPManager *_el;
 	class Minstrel * _rc;
 	Vector<Minstrel *> _rcs;
 	LVAPQueues _lvap_queues;
 	Vector <EtherAddress> _rr_order;
 	float _quantum_div = 1000; // 1000 microseconds
 	int _empty_scheduler_queues = 0;
+	TransmissionTimes _waiting_times;
 
 	bool _debug;
 	ActiveNotifier _notifier;
-
-	//Packet *wifi_encap(Packet *, EtherAddress, EtherAddress, EtherAddress);
 
 	static int write_handler(const String &, Element *, void *, ErrorHandler *);
 	static String read_handler(Element *, void *);

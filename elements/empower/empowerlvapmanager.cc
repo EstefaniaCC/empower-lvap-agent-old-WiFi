@@ -1260,7 +1260,6 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 		compute_bssid_mask();
 
 		if (_es->lvap_queues()->find(sta) == _es->lvap_queues()->end()) {
-
 			int current_clients = _es->lvap_queues()->size();
 			float new_max_period = _es->quantum_division(); // microseconds
 
@@ -1275,6 +1274,12 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 
 			queue._sta = sta;
 			queue._quantum = new_max_period;
+
+			if (channel > 14)
+			{
+				// 11a/11n physical layer
+				queue._phy = EMPOWER_PHY_80211a;
+			}
 
 			_es->lvap_queues()->set(sta, queue);
 			_es->add_queue_order(sta);
@@ -1465,8 +1470,7 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 	// Remove this VAP's BSSID from the mask
 	compute_bssid_mask();
 
-	_es->lvap_queues()->erase(sta);
-	_es->remove_queue_order(sta);
+	_es->release_queue(sta);
 
 	return 0;
 
