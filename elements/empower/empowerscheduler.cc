@@ -7,9 +7,15 @@
 
 #include <elements/standard/counter.hh>
 #include <elements/wifi/minstrel.hh>
+#include <click/config.h>
+#include <click/element.hh>
 #include <elements/wifi/transmissionpolicy.hh>
 #include <elements/wifi/availablerates.hh>
 #include <include/clicknet/radiotap.h>
+#include <click/vector.hh>
+#include <click/etheraddress.hh>
+#include <click/hashtable.hh>
+#include <clicknet/wifi.h>
 #include "empowerpacket.hh"
 #include "empowerrxstats.hh"
 #include "empowercqm.hh"
@@ -19,7 +25,7 @@ CLICK_DECLS
 
 
 EmpowerScheduler::EmpowerScheduler() :
-		_el(0), _debug(false) {
+	_rc(0), _debug(false) {
 }
 
 EmpowerScheduler::~EmpowerScheduler() {

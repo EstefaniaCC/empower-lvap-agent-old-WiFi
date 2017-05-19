@@ -22,6 +22,17 @@
 #include <clicknet/ether.h>
 #include <clicknet/wifi.h>
 #include <elements/wifi/minstrel.hh>
+#include <elements/standard/counter.hh>
+#include <elements/wifi/transmissionpolicy.hh>
+#include <elements/wifi/availablerates.hh>
+#include <include/clicknet/radiotap.h>
+#include <click/vector.hh>
+#include <click/hashtable.hh>
+#include "empowerpacket.hh"
+#include "empowerrxstats.hh"
+#include "empowercqm.hh"
+#include "empowerscheduler.hh"
+#include "empowerlvapmanager.hh"
 CLICK_DECLS
 
 
