@@ -133,7 +133,7 @@ TransmissionTime::TransmissionTime(int sifs, int difs, int slot_time, int cw_min
 typedef HashTable<EtherAddress, EmpowerClientQueue> LVAPQueues;
 typedef LVAPQueues::iterator LVAPQueuesIter;
 
-typedef HashTable<enum empower_phy_types, TransmissionTime> TransmissionTimes;
+typedef HashTable<enum empower_phy_types, TransmissionTime*> TransmissionTimes;
 typedef TransmissionTimes::iterator TransmissionTimesIter;
 
 class EmpowerScheduler: public Element {

@@ -29,9 +29,9 @@ EmpowerScheduler::EmpowerScheduler() :
 }
 
 EmpowerScheduler::~EmpowerScheduler() {
-	TransmissionTime phya = new TransmissionTime(16, 24, 12246, 134, 16, 34, 9, 15, 1023);
-	TransmissionTime phyb = new TransmissionTime(72, 48, 12224, 112, 10, 50, 20, 31, 1023);
-	TransmissionTime phyg = new TransmissionTime(16, 24, 12246, 134, 10, 50, 20, 31, 1023);
+	TransmissionTime* phya = new TransmissionTime(16, 24, 12246, 134, 16, 34, 9, 15, 1023);
+	TransmissionTime* phyb = new TransmissionTime(72, 48, 12224, 112, 10, 50, 20, 31, 1023);
+	TransmissionTime* phyg = new TransmissionTime(16, 24, 12246, 134, 10, 50, 20, 31, 1023);
 	//TransmissionTime phyg = new TransmissionTime(16, 24, 12246, 134, 10, 28, 20, 15, 1023);
 
 	_waiting_times.set(EMPOWER_PHY_80211a, phya);
@@ -60,57 +60,30 @@ void
 EmpowerScheduler::push(int, Packet *p) {
 
 	if (p->length() < sizeof(struct click_wifi)) {
-		click_chatter("%{element} :: %s :: packet too small: %d vs %d",
-				      this,
-				      __func__,
-				      p->length(),
-				      sizeof(struct click_wifi));
-		p->kill();
-		return;
-	}
+			click_chatter("%{element} :: %s :: packet too small: %d vs %d",
+					      this,
+						  __func__,
+						  p->length(),
+						  sizeof(struct click_ether));
+			p->kill();
+			return;
+		}
 
 	struct click_wifi *w = (struct click_wifi *) p->data();
-	uint8_t dir = w->i_fc[1] & WIFI_FC1_DIR_MASK;
-
-	EtherAddress dst;
-
-	switch (dir) {
-	case WIFI_FC1_DIR_NODS:
-		dst = EtherAddress(w->i_addr1);
-		break;
-	case WIFI_FC1_DIR_TODS:
-		dst = EtherAddress(w->i_addr3);
-		break;
-	case WIFI_FC1_DIR_FROMDS:
-		dst = EtherAddress(w->i_addr1);
-		break;
-	case WIFI_FC1_DIR_DSTODS:
-		dst = EtherAddress(w->i_addr1);
-		break;
-	default:
-		click_chatter("%{element} :: %s :: invalid dir %d",
-					  this,
-					  __func__,
-					  dir);
-		p->kill();
-		return;
-	}
-
+	EtherAddress dst = EtherAddress(w->i_addr1);
 
 	// Let's assume only downlink traffic. The destination should be the client.
-
 	EmpowerClientQueue * ecq = _lvap_queues.get_pointer(dst);
 	if (!ecq->_phy)
 	{
 		struct click_wifi_extra *ceh = WIFI_EXTRA_ANNO(p);
 		// In case the OFDM modulation is not found, this is a 11b client
 		if (!(ceh->channel_flags & IEEE80211_CHAN_OFDM))
-		{
-
-		}
+			ecq->_phy = EMPOWER_PHY_80211b;
+		else
+			ecq->_phy = EMPOWER_PHY_80211g;
 	}
 	int tail = ecq->_tail;
-	int head = ecq->_head;
 	int max_pkts = ecq->_max_size;
 	int nb_pkts = ecq->_nb_pkts;
 
@@ -195,7 +168,7 @@ float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client
 	struct click_wifi_extra *ceh = WIFI_EXTRA_ANNO(next_packet);
 
 
-	TransmissionTime tt = _waiting_times.get(queue->_phy);
+	TransmissionTime* tt = _waiting_times.get(queue->_phy);
 
 
 	int nb_retransm = (int) (nfo->probability[nfo->max_tp_rate] + 0.5); // To truncate properly
@@ -211,38 +184,38 @@ float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client
 	{
 		if (i <= max_retries)
 		{
-			float backoff_time = (i*tt._cw_max + tt._cw_min) / 2;
+			float backoff_time = (i*tt->_cw_max + tt->_cw_min) / 2;
 			float payload_time = (pkt_length * 8) / ceh->rate;
-			float data_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate) + (tt._mac_header_body/ceh->rate) + payload_time;
-			float ack_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate) + (tt._ack_mac_header/ceh->rate);
-			estimated_time += tt._difs + backoff_time + tt._sifs + data_time + ack_time;
+			float data_time = tt->_plcp_preamb + (tt->_plcp_header/ceh->rate) + (tt->_mac_header_body/ceh->rate) + payload_time;
+			float ack_time = tt->_plcp_preamb + (tt->_plcp_header/ceh->rate) + (tt->_ack_mac_header/ceh->rate);
+			estimated_time += tt->_difs + backoff_time + tt->_sifs + data_time + ack_time;
 			max_retries--;
 		}
 		else if (i <= max_retries1)
 		{
-			float backoff_time = (i*tt._cw_max + tt._cw_min) / 2;
+			float backoff_time = (i*tt->_cw_max + tt->_cw_min) / 2;
 			float payload_time = (pkt_length * 8) / ceh->rate1;
-			float data_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate1) + (tt._mac_header_body/ceh->rate1) + payload_time;
-			float ack_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate1) + (tt._ack_mac_header/ceh->rate1);
-			estimated_time += tt._difs + backoff_time + tt._sifs + data_time + ack_time;
+			float data_time = tt->_plcp_preamb + (tt->_plcp_header/ceh->rate1) + (tt->_mac_header_body/ceh->rate1) + payload_time;
+			float ack_time = tt->_plcp_preamb + (tt->_plcp_header/ceh->rate1) + (tt->_ack_mac_header/ceh->rate1);
+			estimated_time += tt->_difs + backoff_time + tt->_sifs + data_time + ack_time;
 			max_retries1--;
 		}
 		else if (i <= max_retries2)
 		{
-			float backoff_time = (i*tt._cw_max + tt._cw_min) / 2;
+			float backoff_time = (i*tt->_cw_max + tt->_cw_min) / 2;
 			float payload_time = (pkt_length * 8) / ceh->rate2;
-			float data_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate2) + (tt._mac_header_body/ceh->rate2) + payload_time;
-			float ack_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate2) + (tt._ack_mac_header/ceh->rate2);
-			estimated_time += tt._difs + backoff_time + tt._sifs + data_time + ack_time;
+			float data_time = tt->_plcp_preamb + (tt->_plcp_header/ceh->rate2) + (tt->_mac_header_body/ceh->rate2) + payload_time;
+			float ack_time = tt->_plcp_preamb + (tt->_plcp_header/ceh->rate2) + (tt->_ack_mac_header/ceh->rate2);
+			estimated_time += tt->_difs + backoff_time + tt->_sifs + data_time + ack_time;
 			max_retries2--;
 		}
 		else if (i <= max_retries3)
 		{
-			float backoff_time = (i*tt._cw_max + tt._cw_min) / 2;
+			float backoff_time = (i*tt->_cw_max + tt->_cw_min) / 2;
 			float payload_time = (pkt_length * 8) / ceh->rate3;
-			float data_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate3) + (tt._mac_header_body/ceh->rate3) + payload_time;
-			float ack_time = tt._plcp_preamb + (tt._plcp_header/ceh->rate3) + (tt._ack_mac_header/ceh->rate3);
-			estimated_time += tt._difs + backoff_time + tt._sifs + data_time + ack_time;
+			float data_time = tt->_plcp_preamb + (tt->_plcp_header/ceh->rate3) + (tt->_mac_header_body/ceh->rate3) + payload_time;
+			float ack_time = tt->_plcp_preamb + (tt->_plcp_header/ceh->rate3) + (tt->_ack_mac_header/ceh->rate3);
+			estimated_time += tt->_difs + backoff_time + tt->_sifs + data_time + ack_time;
 			max_retries3--;
 		}
 	}
