@@ -54,7 +54,11 @@ Turn debug on/off
 =a EmpowerWifiDecap
 */
 
-
+enum empower_phy_types {
+    EMPOWER_PHY_80211a = 0x00,
+    EMPOWER_PHY_80211b = 0x01,
+	EMPOWER_PHY_80211g = 0x02
+};
 
 class EmpowerClientQueue {
 public:
@@ -67,12 +71,6 @@ public:
 	int _quantum;
 	bool _first_pkt;
 	enum empower_phy_types _phy;
-};
-
-enum empower_phy_types {
-    EMPOWER_PHY_80211a = 0x00,
-    EMPOWER_PHY_80211b = 0x01,
-	EMPOWER_PHY_80211g = 0x02
 };
 
 class TransmissionTime {
