@@ -66,7 +66,7 @@ public:
 	Packet* _packets[_max_size];
 	int _quantum;
 	bool _first_pkt;
-	empower_phy_types _phy;
+	enum empower_phy_types _phy;
 };
 
 enum empower_phy_types {
@@ -142,7 +142,6 @@ public:
 	Packet *pull(int port);
 	void add_handlers();
 	LVAPQueues* lvap_queues() { return &_lvap_queues; }
-	Vector <EtherAddress> rr_order(){return &_rr_order;}
 	Packet* schedule_packet();
 	float quantum_division() {return _quantum_div;}
 	float pkt_transmission_time(EtherAddress, Packet *);
