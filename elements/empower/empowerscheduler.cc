@@ -5,17 +5,26 @@
  *      Author: estefania
  */
 
-#include <elements/standard/counter.hh>
-#include <elements/wifi/minstrel.hh>
 #include <click/config.h>
 #include <click/element.hh>
+#include <clicknet/ether.h>
+#include <click/etheraddress.hh>
+#include <click/straccum.hh>
+#include <click/args.hh>
+#include <click/error.hh>
+#include <click/notifier.hh>
+#include <click/packet_anno.hh>
+#include <clicknet/wifi.h>
+#include <clicknet/llc.h>
+#include <clicknet/ether.h>
+#include <clicknet/wifi.h>
+#include <elements/wifi/minstrel.hh>
+#include <elements/standard/counter.hh>
 #include <elements/wifi/transmissionpolicy.hh>
 #include <elements/wifi/availablerates.hh>
 #include <include/clicknet/radiotap.h>
 #include <click/vector.hh>
-#include <click/etheraddress.hh>
 #include <click/hashtable.hh>
-#include <clicknet/wifi.h>
 #include "empowerpacket.hh"
 #include "empowerrxstats.hh"
 #include "empowercqm.hh"
@@ -156,7 +165,7 @@ EmpowerScheduler::pull(int)
 	return 0;
 }
 
-float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, Packet * next_packet)
+/*float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, Packet * next_packet)
 {
 	MinstrelDstInfo * nfo = get_dst_info(next_delireved_client);
 
@@ -222,7 +231,24 @@ float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client
 
 	return estimated_time;
 }
+*/
 
+float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, Packet * next_packet)
+{
+	MinstrelDstInfo * nfo = get_dst_info(next_delireved_client);
+
+	EmpowerClientQueue * queue =  _lvap_queues.get_pointer(next_delireved_client);
+	int8_t rate = (nfo->rates[nfo->max_tp_rate])/2;
+	uint32_t pkt_length = next_packet->length();
+	TransmissionTime* tt = _waiting_times.get(queue->_phy);
+
+	float backoff_time = (tt->_cw_max + tt->_cw_min) / 2;
+	float payload_time = (pkt_length * 8) / rate;
+	float data_time = tt->_plcp_preamb + (tt->_plcp_header/rate) + (tt->_mac_header_body/rate) + payload_time;
+	float ack_time = tt->_plcp_preamb + (tt->_plcp_header/rate) + (tt->_ack_mac_header/rate);
+
+	return tt->_difs + backoff_time + tt->_sifs + data_time + ack_time;
+}
 
 
 String EmpowerScheduler::read_handler(Element *e, void *thunk) {
