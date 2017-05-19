@@ -43,9 +43,9 @@ EmpowerScheduler::~EmpowerScheduler() {
 	TransmissionTime* phyg = new TransmissionTime(16, 24, 12246, 134, 10, 50, 20, 31, 1023);
 	//TransmissionTime phyg = new TransmissionTime(16, 24, 12246, 134, 10, 28, 20, 15, 1023);
 
-	_waiting_times.set(EMPOWER_PHY_80211a, phya);
-	_waiting_times.set(EMPOWER_PHY_80211b, phyb);
-	_waiting_times.set(EMPOWER_PHY_80211g, phyg);
+	_waiting_times.set((int)EMPOWER_PHY_80211a, phya);
+	_waiting_times.set((int)EMPOWER_PHY_80211b, phyb);
+	_waiting_times.set((int)EMPOWER_PHY_80211g, phyg);
 
 	/*TransmissionTime phya = new TransmissionTime(16, 34, 9, 15, 1023);
 	TransmissionTime phybg = new TransmissionTime(10, 50, 20, 31, 1023);
@@ -132,7 +132,9 @@ EmpowerScheduler::pull(int)
 
 	while (!delivered_packet && _lvap_queues.size() != _empty_scheduler_queues)
 	{
-		EtherAddress next_delireved_client = _rr_order.pop_front();
+		EtherAddress next_delireved_client = _rr_order.front();
+		_rr_order.pop_front();
+
 		EmpowerClientQueue * queue =  _lvap_queues.get_pointer(next_delireved_client);
 
 		if (queue->_nb_pkts == 0)
@@ -250,6 +252,9 @@ float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client
 	return tt->_difs + backoff_time + tt->_sifs + data_time + ack_time;
 }
 
+enum {
+	H_DEBUG
+};
 
 String EmpowerScheduler::read_handler(Element *e, void *thunk) {
 	EmpowerScheduler *td = (EmpowerScheduler *) e;

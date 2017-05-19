@@ -195,9 +195,9 @@ void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
 	{
 		ptr[0] = WIFI_ELEMID_CHANSWITCHANN;
 		ptr[1] = 3; // length
-		ptr[2] = 0; // channel switch mode
-		ptr[3] = 1; // new channel number
-		ptr[4] = 0; // channel switch count
+		ptr[2] = channel_switch_mode; // channel switch mode
+		ptr[3] = new_channel; // new channel number
+		ptr[4] = channel_switch_count; // channel switch count
 		ptr += 2 + 6;
 		actual_length += 2 + 6;
 	}
