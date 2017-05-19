@@ -61,11 +61,11 @@ public:
 	EtherAddress _sta;
 	int _head = 0;
 	int _tail = 0;
-	static int _max_size = 1000;
-	int _nb_pkts = 0;
-	Packet* _packets[_max_size] = {};
+	static const  int _max_size = 1000;
+	int _nb_pkts;
+	Packet* _packets[_max_size];
 	int _quantum;
-	bool _first_pkt = true;
+	bool _first_pkt;
 	empower_phy_types _phy;
 };
 
@@ -87,7 +87,7 @@ public:
 	int _cw_min;
 	int _cw_max;
 
-TransmissionTime::TransmissionTime(int plcp_reamb, int plcp_header, int mac_header_body, int ack_mac_header,
+	TransmissionTime (int plcp_reamb, int plcp_header, int mac_header_body, int ack_mac_header,
 		int sifs, int difs, int slot_time, int cw_min, int cw_max) {
 		_plcp_preamb = plcp_reamb; // microsec
 		_plcp_header = plcp_header;
@@ -142,7 +142,7 @@ public:
 	Packet *pull(int port);
 	void add_handlers();
 	LVAPQueues* lvap_queues() { return &_lvap_queues; }
-	Vector * rr_order(){return &_rr_order;}
+	Vector <EtherAddress> rr_order(){return &_rr_order;}
 	Packet* schedule_packet();
 	float quantum_division() {return _quantum_div;}
 	float pkt_transmission_time(EtherAddress, Packet *);

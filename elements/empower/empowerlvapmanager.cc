@@ -1273,7 +1273,9 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 			EmpowerClientQueue queue;
 
 			queue._sta = sta;
-			queue._quantum = new_max_period;
+			queue._quantum = 0;
+			queue._first_pkt = true;
+			queue._nb_pkts = 0;
 
 			if (channel > 14)
 			{
