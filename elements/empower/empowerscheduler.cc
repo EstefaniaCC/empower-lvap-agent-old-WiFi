@@ -30,36 +30,33 @@
 #include "empowercqm.hh"
 #include "empowerscheduler.hh"
 #include "empowerlvapmanager.hh"
+#include <elements/wifi/bitrate.hh>
 CLICK_DECLS
 
 
 EmpowerScheduler::EmpowerScheduler() :
-	_rc(0), _debug(false) {
+	_el(0), _debug(false) {
 }
 
 EmpowerScheduler::~EmpowerScheduler() {
+	/*
+
 	TransmissionTime* phya = new TransmissionTime(16, 24, 12246, 134, 16, 34, 9, 15, 1023);
 	TransmissionTime* phyb = new TransmissionTime(72, 48, 12224, 112, 10, 50, 20, 31, 1023);
 	TransmissionTime* phyg = new TransmissionTime(16, 24, 12246, 134, 10, 50, 20, 31, 1023);
-	//TransmissionTime phyg = new TransmissionTime(16, 24, 12246, 134, 10, 28, 20, 15, 1023);
 
 	_waiting_times.set((int)EMPOWER_PHY_80211a, phya);
 	_waiting_times.set((int)EMPOWER_PHY_80211b, phyb);
 	_waiting_times.set((int)EMPOWER_PHY_80211g, phyg);
-
-	/*TransmissionTime phya = new TransmissionTime(16, 34, 9, 15, 1023);
-	TransmissionTime phybg = new TransmissionTime(10, 50, 20, 31, 1023);
-
-	_waiting_times.set(EMPOWER_PHY_80211a, phya);
-	_waiting_times.set(EMPOWER_PHY_80211bg, phybg);
 	*/
+
 }
 
 int EmpowerScheduler::configure(Vector<String> &conf,
 		ErrorHandler *errh) {
 
 	return Args(conf, this, errh)
-			.read_m("RC", ElementCastArg("Minstrel"), _rc)
+			.read_m("EL", ElementCastArg("EmpowerLVAPManager"), _el)
 			.read("DEBUG", _debug)
 			.complete();
 
@@ -79,10 +76,13 @@ EmpowerScheduler::push(int, Packet *p) {
 		}
 
 	struct click_wifi *w = (struct click_wifi *) p->data();
-	EtherAddress dst = EtherAddress(w->i_addr1);
+	EtherAddress dst = EtherAddress(w->i_addr3);
+	EmpowerStationState *ess = _el->lvaps()->get_pointer(dst);
+
 
 	// Let's assume only downlink traffic. The destination should be the client.
-	EmpowerClientQueue * ecq = _lvap_queues.get_pointer(dst);
+	EmpowerClientQueue * ecq = _lvap_queues.get_pointer(ess->_lvap_bssid);
+	/*
 	if (!ecq->_phy)
 	{
 		struct click_wifi_extra *ceh = WIFI_EXTRA_ANNO(p);
@@ -92,6 +92,7 @@ EmpowerScheduler::push(int, Packet *p) {
 		else
 			ecq->_phy = EMPOWER_PHY_80211g;
 	}
+	*/
 	int tail = ecq->_tail;
 	int max_pkts = ecq->_max_size;
 	int nb_pkts = ecq->_nb_pkts;
@@ -110,7 +111,7 @@ EmpowerScheduler::push(int, Packet *p) {
 		_empty_scheduler_queues--;
 
 	ecq->_packets[tail] = p;
-	_lvap_queues.get_pointer(dst)->_tail = (tail + 1) % max_pkts;
+	ecq->_tail = (tail + 1) % max_pkts;
 	// TODO. Return? destroy packet?
 
 
@@ -132,10 +133,10 @@ EmpowerScheduler::pull(int)
 
 	while (!delivered_packet && _lvap_queues.size() != _empty_scheduler_queues)
 	{
-		EtherAddress next_delireved_client = _rr_order.front();
+		EtherAddress lvap_next_delireved_client = _rr_order.front();
 		_rr_order.pop_front();
 
-		EmpowerClientQueue * queue =  _lvap_queues.get_pointer(next_delireved_client);
+		EmpowerClientQueue * queue =  _lvap_queues.get_pointer(lvap_next_delireved_client);
 
 		if (queue->_nb_pkts == 0)
 		{
@@ -151,7 +152,7 @@ EmpowerScheduler::pull(int)
 			}
 			// compute time
 			Packet * next_packet = queue->_packets[queue->_head];
-			float estimated_transm_time = pkt_transmission_time(next_delireved_client, next_packet);
+			float estimated_transm_time = pkt_transmission_time(queue->_sta, queue->_lvap, next_packet);
 
 			if (queue->_quantum >= estimated_transm_time)
 			{
@@ -162,7 +163,7 @@ EmpowerScheduler::pull(int)
 			}
 		}
 		queue->_first_pkt = true;
-		_rr_order.push_back(next_delireved_client);
+		_rr_order.push_back(lvap_next_delireved_client);
 	}
 	return 0;
 }
@@ -235,11 +236,12 @@ EmpowerScheduler::pull(int)
 }
 */
 
-float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, Packet * next_packet)
+/*
+float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, EtherAddress lvap_bssid, Packet * next_packet)
 {
-	MinstrelDstInfo * nfo = get_dst_info(next_delireved_client);
+	MinstrelDstInfo * nfo = _el->get_dst_info(next_delireved_client);
 
-	EmpowerClientQueue * queue =  _lvap_queues.get_pointer(next_delireved_client);
+	EmpowerClientQueue * queue =  _lvap_queues.get_pointer(lvap_bssid);
 	int8_t rate = (nfo->rates[nfo->max_tp_rate])/2;
 	uint32_t pkt_length = next_packet->length();
 	TransmissionTime* tt = _waiting_times.get(queue->_phy);
@@ -250,6 +252,23 @@ float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client
 	float ack_time = tt->_plcp_preamb + (tt->_plcp_header/rate) + (tt->_ack_mac_header/rate);
 
 	return tt->_difs + backoff_time + tt->_sifs + data_time + ack_time;
+}
+*/
+
+float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, EtherAddress lvap_bssid, Packet * next_packet)
+{
+	MinstrelDstInfo * nfo = _el->get_dst_info(next_delireved_client);
+
+	EmpowerClientQueue * queue =  _lvap_queues.get_pointer(lvap_bssid);
+	int rate = (nfo->rates[nfo->max_tp_rate])/2;
+	int pkt_length = next_packet->length();
+	int nb_retransm = (int) (nfo->probability[nfo->max_tp_rate] + 0.5); // To truncate properly
+
+	float backoff_time = (float)calc_backoff(rate, nb_retransm);
+	float data_time = (float)calc_transmit_time(rate, pkt_length);
+	float retransm_time = (float) calc_usecs_wifi_packet_tries(pkt_length, rate, 1, nb_retransm);
+
+	return backoff_time + data_time + retransm_time;
 }
 
 enum {

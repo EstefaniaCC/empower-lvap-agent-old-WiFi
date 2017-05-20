@@ -22,6 +22,7 @@
 #include <clicknet/ether.h>
 #include <clicknet/wifi.h>
 #include <elements/wifi/minstrel.hh>
+#include <elements/wifi/bitrate.hh>
 #include <elements/standard/counter.hh>
 #include <elements/wifi/transmissionpolicy.hh>
 #include <elements/wifi/availablerates.hh>
@@ -65,14 +66,16 @@ Turn debug on/off
 =a EmpowerWifiDecap
 */
 
-enum empower_phy_types {
+/*enum empower_phy_types {
     EMPOWER_PHY_80211a = 0x00,
     EMPOWER_PHY_80211b = 0x01,
 	EMPOWER_PHY_80211g = 0x02
 };
+*/
 
 class EmpowerClientQueue {
 public:
+	EtherAddress _lvap;
 	EtherAddress _sta;
 	int _head = 0;
 	int _tail = 0;
@@ -81,9 +84,10 @@ public:
 	Packet* _packets[_max_size];
 	int _quantum;
 	bool _first_pkt;
-	enum empower_phy_types _phy;
+	//enum empower_phy_types _phy;
 };
 
+/*
 class TransmissionTime {
 public:
 	int _plcp_preamb;
@@ -109,32 +113,14 @@ public:
 		_cw_max = cw_max;
 	}
 };
-
-
-/*
-class TransmissionTime {
-public:
-	int _sifs;
-	int _difs;
-	int _slot_time;
-	int _cw_min;
-	int _cw_max;
-
-TransmissionTime::TransmissionTime(int sifs, int difs, int slot_time, int cw_min, int cw_max) {
-		_sifs = sifs;
-		_difs = difs;
-		_slot_time = slot_time;
-		_cw_min = cw_min;
-		_cw_max = cw_max;
-	}
-};
 */
+
 
 typedef HashTable<EtherAddress, EmpowerClientQueue> LVAPQueues;
 typedef LVAPQueues::iterator LVAPQueuesIter;
 
-typedef HashTable<int, TransmissionTime*> TransmissionTimes;
-typedef TransmissionTimes::iterator TransmissionTimesIter;
+//typedef HashTable<int, TransmissionTime*> TransmissionTimes;
+//typedef TransmissionTimes::iterator TransmissionTimesIter;
 
 class EmpowerScheduler: public Element {
 public:
@@ -153,7 +139,7 @@ public:
 	LVAPQueues* lvap_queues() { return &_lvap_queues; }
 	Packet* schedule_packet();
 	float quantum_division() {return _quantum_div;}
-	float pkt_transmission_time(EtherAddress, Packet *);
+	float pkt_transmission_time(EtherAddress, EtherAddress, Packet *);
 
 
 	void update_quantum(float new_quantum)
@@ -161,15 +147,15 @@ public:
 		_quantum_div = new_quantum;
 	}
 
-	void add_queue_order(EtherAddress sta)
+	void add_queue_order(EtherAddress lvap_bssid)
 	{
-		_rr_order.push_back(sta);
+		_rr_order.push_back(lvap_bssid);
 	}
 
-	MinstrelDstInfo * get_dst_info(EtherAddress sta){
+	/*MinstrelDstInfo * get_dst_info(EtherAddress sta){
 		MinstrelDstInfo * nfo =_rc->neighbors()->findp(sta);
 		return nfo;
-	}
+	}*/
 
 	void release_queue(EtherAddress sta)
 	{
@@ -198,13 +184,12 @@ public:
 
 
 private:
-	class Minstrel * _rc;
-	Vector<Minstrel *> _rcs;
+	class EmpowerLVAPManager *_el;
 	LVAPQueues _lvap_queues;
 	Vector <EtherAddress> _rr_order;
 	float _quantum_div = 1000; // 1000 microseconds
 	int _empty_scheduler_queues = 0;
-	TransmissionTimes _waiting_times;
+	//TransmissionTimes _waiting_times;
 
 	bool _debug;
 	ActiveNotifier _notifier;

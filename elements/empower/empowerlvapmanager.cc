@@ -1272,19 +1272,22 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 
 			EmpowerClientQueue queue;
 
+			queue._lvap = lvap_bssid;
 			queue._sta = sta;
 			queue._quantum = 0;
 			queue._first_pkt = true;
 			queue._nb_pkts = 0;
 
+			/*
 			if (channel > 14)
 			{
 				// 11a/11n physical layer
 				queue._phy = EMPOWER_PHY_80211a;
 			}
+			*/
 
-			_es->lvap_queues()->set(sta, queue);
-			_es->add_queue_order(sta);
+			_es->lvap_queues()->set(lvap_bssid, queue);
+			_es->add_queue_order(lvap_bssid);
 		}
 
 		return 0;
