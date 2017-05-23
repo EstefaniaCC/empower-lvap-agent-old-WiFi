@@ -27,6 +27,7 @@
 #include <elements/wifi/transmissionpolicy.hh>
 #include <elements/wifi/availablerates.hh>
 #include <include/clicknet/radiotap.h>
+#include <click/confparse.hh>
 #include <click/vector.hh>
 #include <click/hashtable.hh>
 #include "empowerpacket.hh"
@@ -77,14 +78,39 @@ class EmpowerClientQueue {
 public:
 	EtherAddress _lvap;
 	EtherAddress _sta;
-	int _head = 0;
-	int _tail = 0;
-	static const  int _max_size = 1000;
+	int _head;
+	int _tail;
+	int _max_size;
 	int _nb_pkts;
-	Packet* _packets[_max_size];
+	Packet** _packets;
 	int _quantum;
 	bool _first_pkt;
+	int _total_consumed_time;
+	int _dropped_packets;
 	//enum empower_phy_types _phy;
+
+	EmpowerClientQueue() {
+		_lvap = EtherAddress();
+		_sta = EtherAddress();;
+		_head = 0;
+		_tail = 0;
+		_max_size = 1000;
+		_nb_pkts = 0;
+		_packets = new Packet*[_max_size];
+		_quantum = 0;
+		_first_pkt = true;
+		_total_consumed_time = 0;
+		_dropped_packets = 0;
+	}
+
+	~EmpowerClientQueue() {
+		while(_nb_pkts > 0)
+		{
+			_packets[_head]->kill();
+			_head = (_head + 1) % _max_size;
+			_nb_pkts--;
+		}
+	}
 };
 
 /*
@@ -133,14 +159,19 @@ public:
 	const char *processing() const { return PUSH_TO_PULL; }
 
 	int configure(Vector<String> &, ErrorHandler *);
+	//void *cast(const char *);
+	int initialize(ErrorHandler *);
+
 	void push(int, Packet *);
 	Packet *pull(int port);
-	void add_handlers();
-	LVAPQueues* lvap_queues() { return &_lvap_queues; }
-	Packet* schedule_packet();
-	float quantum_division() {return _quantum_div;}
-	float pkt_transmission_time(EtherAddress, EtherAddress, Packet *);
 
+	void add_handlers();
+
+	LVAPQueues* lvap_queues() { return &_lvap_queues; }
+	int quantum_division() {return _quantum_div;}
+	int emtpy_scheduler_queues() {return _empty_scheduler_queues;}
+	void compute_system_quantum(EtherAddress, int);
+	int pkt_transmission_time(EtherAddress, int);
 
 	void update_quantum(float new_quantum)
 	{
@@ -150,6 +181,7 @@ public:
 	void add_queue_order(EtherAddress lvap_bssid)
 	{
 		_rr_order.push_back(lvap_bssid);
+		_empty_scheduler_queues++;
 	}
 
 	/*MinstrelDstInfo * get_dst_info(EtherAddress sta){
@@ -159,8 +191,31 @@ public:
 
 	void release_queue(EtherAddress sta)
 	{
-		EmpowerClientQueue *ec = _lvap_queues.get_pointer(sta);
+		EmpowerStationState *ess = _el->lvaps()->get_pointer(sta);
+		if (!ess) {
+			click_chatter("%{element} :: %s :: unknown LVAP %s ignoring",
+						  this,
+						  __func__,
+						  sta.unparse_colon().c_str());
+			return;
+		}
+
+		EmpowerClientQueue *ec = _lvap_queues.get_pointer(ess->_lvap_bssid);
+
+		if (!ec) {
+			click_chatter("%{element} :: %s :: UNAVAILABLE QUEUE FOR LVAP corresponding to sta %s",
+						  this,
+						  __func__,
+						  sta.unparse_colon().c_str());
+			return;
+		}
+
 		// Delete all the remaining packets in the queue
+
+		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. All the packets in queue %s are going to be destroyed ----- ",
+																					 this,
+																					 __func__,
+																					 ess->_lvap_bssid.unparse().c_str());
 		while(ec->_nb_pkts > 0)
 		{
 			ec->_packets[ec->_head]->kill();
@@ -168,18 +223,23 @@ public:
 			ec->_nb_pkts--;
 		}
 		// Delete the queue
-		_lvap_queues.erase(sta);
+		_lvap_queues.erase(ess->_lvap_bssid);
 		// Delete it from the ordered queue
 		int index = -1;
 		for (int i = 0; i < _rr_order.size(); i++)
 		{
-			if (_rr_order.at(0) == sta)
+			if (_rr_order.at(0) == ess->_lvap_bssid)
 			{
 				index = i;
 				break;
 			}
 		}
 		_rr_order.erase(_rr_order.begin() + index);
+
+		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Packets in queue %s destroyed and queue erased ----- ",
+																							 this,
+																							 __func__,
+																							 ess->_lvap_bssid.unparse().c_str());
 	}
 
 
@@ -187,10 +247,10 @@ private:
 	class EmpowerLVAPManager *_el;
 	LVAPQueues _lvap_queues;
 	Vector <EtherAddress> _rr_order;
-	float _quantum_div = 1000; // 1000 microseconds
-	int _empty_scheduler_queues = 0;
+	int _quantum_div; // 1000 microseconds
+	int _empty_scheduler_queues;
 	//TransmissionTimes _waiting_times;
-
+	int _next;
 	bool _debug;
 	ActiveNotifier _notifier;
 

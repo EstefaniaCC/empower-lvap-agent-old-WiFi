@@ -35,8 +35,8 @@ struct click_wifi_extra {
 
   uint16_t flags;
   uint16_t channel;
-  uint16_t channel_flags;
-  uint16_t padding;
+  //uint16_t channel_flags;
+  //uint16_t padding;
 
   uint8_t rssi;
   uint8_t silence;

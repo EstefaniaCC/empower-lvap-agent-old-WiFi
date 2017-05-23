@@ -31,6 +31,8 @@
 #include "empowerscheduler.hh"
 #include "empowerlvapmanager.hh"
 #include <elements/wifi/bitrate.hh>
+#include <click/straccum.hh>
+#include <click/confparse.hh>
 CLICK_DECLS
 
 
@@ -55,11 +57,29 @@ EmpowerScheduler::~EmpowerScheduler() {
 int EmpowerScheduler::configure(Vector<String> &conf,
 		ErrorHandler *errh) {
 
+	_notifier.initialize(Notifier::EMPTY_NOTIFIER, router());
+
 	return Args(conf, this, errh)
 			.read_m("EL", ElementCastArg("EmpowerLVAPManager"), _el)
 			.read("DEBUG", _debug)
 			.complete();
 
+}
+
+/*void *
+EmpowerScheduler::cast(const char *n) {
+	if (strcmp(n, "EmpowerScheduler") == 0)
+		return (EmpowerScheduler *) this;
+	else if (strcmp(n, Notifier::EMPTY_NOTIFIER) == 0)
+		return static_cast<Notifier *>(&_notifier);
+}
+*/
+
+int EmpowerScheduler::initialize(ErrorHandler *) {
+	_empty_scheduler_queues = 0;
+	_quantum_div = 0;
+
+	return 0;
 }
 
 void
@@ -79,9 +99,20 @@ EmpowerScheduler::push(int, Packet *p) {
 	EtherAddress dst = EtherAddress(w->i_addr3);
 	EmpowerStationState *ess = _el->lvaps()->get_pointer(dst);
 
+	if (!ess) {
+		p->kill();
+		return;
+	}
 
 	// Let's assume only downlink traffic. The destination should be the client.
 	EmpowerClientQueue * ecq = _lvap_queues.get_pointer(ess->_lvap_bssid);
+
+	if (!ecq) {
+		p->kill();
+		return;
+	}
+
+
 	/*
 	if (!ecq->_phy)
 	{
@@ -93,30 +124,39 @@ EmpowerScheduler::push(int, Packet *p) {
 			ecq->_phy = EMPOWER_PHY_80211g;
 	}
 	*/
-	int tail = ecq->_tail;
-	int max_pkts = ecq->_max_size;
-	int nb_pkts = ecq->_nb_pkts;
 
-	if (nb_pkts == max_pkts)
+	if (ecq->_nb_pkts == ecq->_max_size)
 	{
-		click_chatter("%{element} :: %s :: Packets buffer is full for station %s",
+		click_chatter("%{element} :: %s :: Packets buffer is full for station %s. Dropped packets %d",
 							  this,
 							  __func__,
-							  dst.unparse().c_str());
+							  dst.unparse().c_str(),
+							  ecq->_dropped_packets);
+		ecq->_dropped_packets++;
 		p->kill();
 		return;
 	}
 
-	if (nb_pkts == 0)
+	if (_empty_scheduler_queues != 0 && ecq->_nb_pkts == 0)
+	{
 		_empty_scheduler_queues--;
+		click_chatter("%{element} :: %s :: Scheduler queues were empty. Now a packet has been enqueued %d",
+									  this,
+									  __func__,
+									  _empty_scheduler_queues);
+	}
 
-	ecq->_packets[tail] = p;
-	ecq->_tail = (tail + 1) % max_pkts;
-	// TODO. Return? destroy packet?
+	ecq->_packets[ecq->_tail] = p;
+	ecq->_tail = (ecq->_tail + 1) % ecq->_max_size;
+	ecq->_nb_pkts++;
 
-
-	if (_empty_scheduler_queues == 0)
+	if (_empty_scheduler_queues == 0 || (_lvap_queues.size() == _empty_scheduler_queues))
+	{
 		_notifier.wake();
+		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Wake up damn ----- ",
+																						 this,
+																						 __func__);
+	}
 }
 
 
@@ -128,13 +168,21 @@ EmpowerScheduler::pull(int)
 	if (_lvap_queues.size() == _empty_scheduler_queues)
 	{
 		_notifier.sleep();
+		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Go to sleep damn ----- ",
+																								 this,
+																								 __func__);
 		return 0;
 	}
 
 	while (!delivered_packet && _lvap_queues.size() != _empty_scheduler_queues)
 	{
+
 		EtherAddress lvap_next_delireved_client = _rr_order.front();
-		_rr_order.pop_front();
+
+		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. PULL. Next queue lvap %s ----- ",
+																				 this,
+																				 __func__,
+																				 lvap_next_delireved_client.unparse().c_str());
 
 		EmpowerClientQueue * queue =  _lvap_queues.get_pointer(lvap_next_delireved_client);
 
@@ -142,30 +190,84 @@ EmpowerScheduler::pull(int)
 		{
 			queue->_quantum = 0;
 			_empty_scheduler_queues ++;
+			click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. PULL. No packets in queue lvap %s. Empty queues %d----- ",
+																							 this,
+																							 __func__,
+																							 lvap_next_delireved_client.unparse().c_str(),
+																							 _empty_scheduler_queues);
 		}
 		else
 		{
+			Packet * next_packet = queue->_packets[queue->_head];
+
 			if (queue->_first_pkt)
 			{
+				if (_quantum_div == 0)
+				{
+					click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. PULL. First quantum div %f ----- ",
+																															 this,
+																															 __func__,
+																															 _quantum_div);
+					compute_system_quantum(queue->_sta, 1460);
+
+				}
+
 				queue->_quantum += _quantum_div;
 				queue->_first_pkt = false;
+
 			}
 			// compute time
-			Packet * next_packet = queue->_packets[queue->_head];
-			float estimated_transm_time = pkt_transmission_time(queue->_sta, queue->_lvap, next_packet);
+
+			float estimated_transm_time = pkt_transmission_time(queue->_sta, (int)next_packet->length());
+
+			click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. PULL. Estimated time %f to deliver packet in queue %s. Quantum %d ----- ",
+																						 this,
+																						 __func__,
+																						 estimated_transm_time,
+																						 lvap_next_delireved_client.unparse().c_str(),
+																						 queue->_quantum);
 
 			if (queue->_quantum >= estimated_transm_time)
 			{
 				delivered_packet = true;
 				queue->_head = (queue->_head + 1) % queue->_max_size;
 				queue->_nb_pkts--;
+				queue->_quantum -= estimated_transm_time;
+				queue->_total_consumed_time += estimated_transm_time;
+
+				click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. PULL. Packet transmitted in queue  %s. Remaining quantum %d. Total consumed time %d ---- ",
+																														 this,
+																														 __func__,
+																														 lvap_next_delireved_client.unparse().c_str(),
+																														 queue->_quantum,
+																														 queue->_total_consumed_time);
+
 				return next_packet;
 			}
 		}
 		queue->_first_pkt = true;
 		_rr_order.push_back(lvap_next_delireved_client);
+		_rr_order.pop_front();
+		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. PULL. Queue  %s has been placed at the end----- ",
+																									 this,
+																									 __func__,
+																									 lvap_next_delireved_client.unparse().c_str());
 	}
 	return 0;
+}
+
+void EmpowerScheduler::compute_system_quantum(EtherAddress sta, int pkt_length)
+{
+		EmpowerStationState *ess = _el->lvaps()->get_pointer(sta);
+		TxPolicyInfo * tx_policy = _el->get_tx_policies(ess->_iface_id)->lookup(sta);
+		int lowest_rate = tx_policy->_mcs[0];
+		int nb_retransm = 0;
+
+		int transm_time = (int) calc_transmit_time(lowest_rate, pkt_length);
+		int backoff = (int) calc_backoff(lowest_rate, nb_retransm);
+		int total_time = (int) calc_usecs_wifi_packet(pkt_length, lowest_rate, nb_retransm);
+
+		_quantum_div = total_time;
 }
 
 /*float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, Packet * next_packet)
@@ -255,20 +357,48 @@ float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client
 }
 */
 
-float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, EtherAddress lvap_bssid, Packet * next_packet)
+int EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, int pkt_length)
 {
 	MinstrelDstInfo * nfo = _el->get_dst_info(next_delireved_client);
+	int rate, nb_retransm;
 
-	EmpowerClientQueue * queue =  _lvap_queues.get_pointer(lvap_bssid);
-	int rate = (nfo->rates[nfo->max_tp_rate])/2;
-	int pkt_length = next_packet->length();
-	int nb_retransm = (int) (nfo->probability[nfo->max_tp_rate] + 0.5); // To truncate properly
+	if (nfo)
+	{
+		rate = (nfo->rates[nfo->max_tp_rate]);
+		nb_retransm = (int) (nfo->probability[nfo->max_tp_rate] + 0.5) - 1; // To truncate properly
+	}
+	else
+	{
+		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. NFO Null pointer ----- ",
+																			 this,
+																			 __func__);
+		EmpowerStationState *ess = _el->lvaps()->get_pointer(next_delireved_client);
+		TxPolicyInfo * tx_policy = _el->get_tx_policies(ess->_iface_id)->lookup(next_delireved_client);
+		rate = tx_policy->_mcs[0];
+		nb_retransm = 0;
+	}
 
-	float backoff_time = (float)calc_backoff(rate, nb_retransm);
-	float data_time = (float)calc_transmit_time(rate, pkt_length);
-	float retransm_time = (float) calc_usecs_wifi_packet_tries(pkt_length, rate, 1, nb_retransm);
+	click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Rate %d, nb_retrans %d length %d ----- ",
+																				 this,
+																				 __func__,
+																				 rate,
+																				 nb_retransm,
+																				 pkt_length);
 
-	return backoff_time + data_time + retransm_time;
+	int transm_time = (int) calc_transmit_time(rate, pkt_length);
+	int backoff = (int) calc_backoff(rate, nb_retransm);
+	int total_time = (int) calc_usecs_wifi_packet(pkt_length, rate, nb_retransm);
+
+	click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Rate %d, nb_retrans %d length %d transm_time %d, backoff %d, total_time %d ----- ",
+																					 this,
+																					 __func__,
+																					 rate,
+																					 nb_retransm,
+																					 pkt_length,
+																					 transm_time,
+																					 backoff,
+																					 total_time);
+	return total_time;
 }
 
 enum {

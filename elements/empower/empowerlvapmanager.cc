@@ -1259,36 +1259,59 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 		/* Regenerate the BSSID mask */
 		compute_bssid_mask();
 
-		if (_es->lvap_queues()->find(sta) == _es->lvap_queues()->end()) {
-			int current_clients = _es->lvap_queues()->size();
-			float new_max_period = _es->quantum_division(); // microseconds
+		click_chatter("%{element} :: %s :: ----- New LVAP lvap_bssid %s station %s channel %u ----- ",
+											 this,
+											 __func__,
+											 lvap_bssid.unparse().c_str(),
+											 sta.unparse().c_str(),
+											 channel);
 
-			if (current_clients > 1)
-			{
-				// 1 milisecond (1000 microseconds) is divided into the number of clients
-				new_max_period = 1000/current_clients;
-				_es->update_quantum(new_max_period);
-			}
+
+		if (_es->lvap_queues()->find(sta) == _es->lvap_queues()->end()) {
 
 			EmpowerClientQueue queue;
 
 			queue._lvap = lvap_bssid;
 			queue._sta = sta;
-			queue._quantum = 0;
-			queue._first_pkt = true;
-			queue._nb_pkts = 0;
 
-			/*
-			if (channel > 14)
-			{
+			click_chatter("%{element} :: %s :: ----- New LVAP bssid %s sta %s in the SCHEDULER QUEUE ----- ",
+																	 this,
+																	 __func__,
+																	 lvap_bssid.unparse().c_str(),
+																	 sta.unparse().c_str());
+
+
+
+
+			//if (channel > 14)
+			//{
 				// 11a/11n physical layer
-				queue._phy = EMPOWER_PHY_80211a;
-			}
-			*/
+			//	queue._phy = EMPOWER_PHY_80211a;
+			//}
+
 
 			_es->lvap_queues()->set(lvap_bssid, queue);
 			_es->add_queue_order(lvap_bssid);
+
+			click_chatter("%{element} :: %s :: ----- LVAP bssid %s sta %s added to SCHEDULER QUEUE. Size %d _empty_scheduler_queues %d ----- ",
+																				 this,
+																				 __func__,
+																				 lvap_bssid.unparse().c_str(),
+																				 sta.unparse().c_str(),
+																				 _es->lvap_queues()->size(),
+																				 _es->emtpy_scheduler_queues());
+			queue._lvap = sta;
+
+			EmpowerClientQueue * queue_test = _es->lvap_queues()->get_pointer(lvap_bssid);
+
+			click_chatter("%{element} :: %s :: ----- LVAP bssid %s sta %s SCHEDULER QUEUE. quantum update %d ----- ",
+																							 this,
+																							 __func__,
+																							 queue_test->_lvap.unparse().c_str(),
+																							 queue_test->_sta.unparse().c_str());
+
 		}
+
 
 		return 0;
 
@@ -1306,6 +1329,7 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 	ess->_set_mask = set_mask;
 	ess->_ssid = ssid;
 
+	/*
 	if (channel != ess->_channel)
 	{
 		// Two situations can be found:
@@ -1331,6 +1355,7 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 		ess->_iface_id = iface;
 		ess->_channel = channel;
 	}
+	*/
 
 	return 0;
 
@@ -1475,13 +1500,23 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 	// Remove this VAP's BSSID from the mask
 	compute_bssid_mask();
 
-	_es->release_queue(sta);
+	//_es->release_queue(sta);
+
+	click_chatter("%{element} :: %s :: ----- Queue  from sta %s is going to be deleted ----- ",
+																										 this,
+																										 __func__,
+																										 sta.unparse().c_str());
+
 
 	return 0;
 
 }
 
 int EmpowerLVAPManager::handle_probe_response(Packet *p, uint32_t offset) {
+
+	click_chatter("%{element} :: %s :: PROBE RESPONSE",
+						      this,
+						      __func__);
 
 	struct empower_probe_response *q = (struct empower_probe_response *) (p->data() + offset);
 	EtherAddress sta = q->sta();
@@ -1493,6 +1528,11 @@ int EmpowerLVAPManager::handle_probe_response(Packet *p, uint32_t offset) {
 				      sta.unparse_colon().c_str());
 	}
 
+	click_chatter("%{element} :: %s :: PROBE RESPONSE sta %s",
+					      this,
+					      __func__,
+					      sta.unparse_colon().c_str());
+
 	EmpowerStationState *ess = _lvaps.get_pointer(sta);
 
 	if (!ess) {
@@ -1503,17 +1543,32 @@ int EmpowerLVAPManager::handle_probe_response(Packet *p, uint32_t offset) {
 		return 0;
 	}
 
+	click_chatter("%{element} :: %s :: PROBE RESPONSE 2 sta %s",
+						      this,
+						      __func__,
+						      sta.unparse_colon().c_str());
+
 	// reply with lvap's ssdis
 	for (int i = 0; i < ess->_ssids.size(); i++) {
 		_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssids[i],
-				ess->_channel, ess->_iface_id, true, false, 0, 0);
+				ess->_channel, ess->_iface_id, true, 1, 0, 0);
 	}
+
+	click_chatter("%{element} :: %s :: PROBE RESPONSE 3 sta %s",
+						      this,
+						      __func__,
+						      sta.unparse_colon().c_str());
 
 	// reply also with all vaps
 	for (VAPIter it = _vaps.begin(); it.live(); it++) {
 		_ebs->send_beacon(ess->_sta, it.value()._net_bssid, it.value()._ssid,
-				it.value()._channel, it.value()._iface_id, true, false, 0, 0);
+				it.value()._channel, it.value()._iface_id, true, 1, 0, 0);
 	}
+
+	click_chatter("%{element} :: %s :: PROBE RESPONSE 4 sta %s",
+							      this,
+							      __func__,
+							      sta.unparse_colon().c_str());
 
 	return 0;
 
