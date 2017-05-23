@@ -1269,10 +1269,7 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 
 		if (_es->lvap_queues()->find(sta) == _es->lvap_queues()->end()) {
 
-			EmpowerClientQueue queue;
 
-			queue._lvap = lvap_bssid;
-			queue._sta = sta;
 
 			click_chatter("%{element} :: %s :: ----- New LVAP bssid %s sta %s in the SCHEDULER QUEUE ----- ",
 																	 this,
@@ -1281,34 +1278,13 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 																	 sta.unparse().c_str());
 
 
-
+			_es->request_queue(sta, lvap_bssid);
 
 			//if (channel > 14)
 			//{
 				// 11a/11n physical layer
 			//	queue._phy = EMPOWER_PHY_80211a;
 			//}
-
-
-			_es->lvap_queues()->set(lvap_bssid, queue);
-			_es->add_queue_order(lvap_bssid);
-
-			click_chatter("%{element} :: %s :: ----- LVAP bssid %s sta %s added to SCHEDULER QUEUE. Size %d _empty_scheduler_queues %d ----- ",
-																				 this,
-																				 __func__,
-																				 lvap_bssid.unparse().c_str(),
-																				 sta.unparse().c_str(),
-																				 _es->lvap_queues()->size(),
-																				 _es->emtpy_scheduler_queues());
-			queue._lvap = sta;
-
-			EmpowerClientQueue * queue_test = _es->lvap_queues()->get_pointer(lvap_bssid);
-
-			click_chatter("%{element} :: %s :: ----- LVAP bssid %s sta %s SCHEDULER QUEUE. quantum update %d ----- ",
-																							 this,
-																							 __func__,
-																							 queue_test->_lvap.unparse().c_str(),
-																							 queue_test->_sta.unparse().c_str());
 
 		}
 
@@ -1328,6 +1304,17 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 	ess->_association_status = association_state;
 	ess->_set_mask = set_mask;
 	ess->_ssid = ssid;
+
+	/* update fair buffer queue */
+		if (_es && lvap_bssid != ess->_lvap_bssid) {
+			click_chatter("%{element} :: %s :: ----- LVAP UPDATE bssid %s sta %s in the SCHEDULER QUEUE ----- ",
+																				 this,
+																				 __func__,
+																				 lvap_bssid.unparse().c_str(),
+																				 sta.unparse().c_str());
+			_es->release_queue(sta);
+			_es->request_queue(sta, lvap_bssid);
+	}
 
 	/*
 	if (channel != ess->_channel)
@@ -1489,6 +1476,13 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 		_edeauthr->send_deauth_request(sta, 0x0001, ess->_iface_id);
 	}
 
+	_es->release_queue(sta);
+
+		click_chatter("%{element} :: %s :: ----- Queue  from sta %s is going to be deleted ----- ",
+																											 this,
+																											 __func__,
+																											 sta.unparse().c_str());
+
 	// erasing lvap
 	_lvaps.erase(_lvaps.find(sta));
 
@@ -1499,14 +1493,6 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 
 	// Remove this VAP's BSSID from the mask
 	compute_bssid_mask();
-
-	//_es->release_queue(sta);
-
-	click_chatter("%{element} :: %s :: ----- Queue  from sta %s is going to be deleted ----- ",
-																										 this,
-																										 __func__,
-																										 sta.unparse().c_str());
-
 
 	return 0;
 

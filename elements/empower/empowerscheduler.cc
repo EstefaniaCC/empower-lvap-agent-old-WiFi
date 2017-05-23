@@ -33,6 +33,17 @@
 #include <elements/wifi/bitrate.hh>
 #include <click/straccum.hh>
 #include <click/confparse.hh>
+#include <click/router.hh>
+#include <click/task.hh>
+#include <click/standard/scheduleinfo.hh>
+#include <click/glue.hh>
+#include <click/straccum.hh>
+#include <click/packet_anno.hh>
+#include <click/userutils.hh>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 CLICK_DECLS
 
 
@@ -75,9 +86,19 @@ EmpowerScheduler::cast(const char *n) {
 }
 */
 
+void *
+EmpowerScheduler::cast(const char *n)
+{
+    if (strcmp(n, Notifier::EMPTY_NOTIFIER) == 0)
+    	return static_cast<Notifier *>(&_notifier);
+    else
+    	return Element::cast(n);
+}
+
+
 int EmpowerScheduler::initialize(ErrorHandler *) {
-	_empty_scheduler_queues = 0;
 	_quantum_div = 0;
+	_notifier.initialize(Notifier::EMPTY_NOTIFIER, router());
 	//_next = 0;
 
 	return 0;
@@ -98,19 +119,15 @@ EmpowerScheduler::push(int, Packet *p) {
 
 	struct click_wifi *w = (struct click_wifi *) p->data();
 	EtherAddress dst = EtherAddress(w->i_addr3);
-	EmpowerStationState *ess = _el->lvaps()->get_pointer(dst);
+	EtherAddress bssid = EtherAddress(w->i_addr2);
 
-	if (!ess) {
-		p->kill();
-		return;
-	}
 
 	// Let's assume only downlink traffic. The destination should be the client.
-	EmpowerClientQueue * ecq = _lvap_queues.get_pointer(ess->_lvap_bssid);
+	EmpowerClientQueue * ecq = _lvap_queues.get_pointer(bssid);
 
 	if (!ecq) {
-		p->kill();
-		return;
+		request_queue(dst, bssid);
+		ecq = _lvap_queues.get_pointer(bssid);
 	}
 
 
@@ -128,37 +145,31 @@ EmpowerScheduler::push(int, Packet *p) {
 
 	if (ecq->_nb_pkts == ecq->_max_size)
 	{
-		click_chatter("%{element} :: %s :: Packets buffer is full for station %s. Dropped packets %d",
+		click_chatter("%{element} :: %s :: Packets buffer is full for station %s. Dropped packets %d. Nb_pkts %d",
 							  this,
 							  __func__,
 							  dst.unparse().c_str(),
-							  ecq->_dropped_packets);
+							  ecq->_dropped_packets,
+							  ecq->_nb_pkts);
 		ecq->_dropped_packets++;
 		p->kill();
 		return;
 	}
 
-	if (_empty_scheduler_queues != 0 && ecq->_nb_pkts == 0)
-	{
-		_empty_scheduler_queues--;
-		click_chatter("%{element} :: %s :: Scheduler queues were empty. Now a packet has been enqueued %d",
-									  this,
-									  __func__,
-									  _empty_scheduler_queues);
-	}
+	click_chatter("%{element} :: %s :: Packet %p enqueued in PUSH",
+										  this,
+										  __func__,
+										  p);
 
 	ecq->_packets[ecq->_tail] = p;
 	ecq->_tail = (ecq->_tail + 1) % ecq->_max_size;
 	ecq->_nb_pkts++;
-	_rr_order.push_back(ess->_lvap_bssid);
+	_rr_order.push_back(bssid);
 
-	//if (_empty_scheduler_queues == 0 || (_lvap_queues.size() == _empty_scheduler_queues))
-	//{
-		_notifier.wake();
-		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Wake up damn ----- ",
-																						 this,
-																						 __func__);
-	//}
+	_notifier.wake();
+	click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Wake up damn ----- ",
+																					 this,
+																					 __func__);
 }
 
 
@@ -166,16 +177,6 @@ Packet *
 EmpowerScheduler::pull(int)
 {
 	bool delivered_packet = false;
-
-	/*if (_lvap_queues.size() == _empty_scheduler_queues)
-	{
-		_notifier.sleep();
-		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Go to sleep damn ----- ",
-																								 this,
-																								 __func__);
-		return 0;
-	}
-	*/
 
 	if (_rr_order.size() == 0)
 	{
@@ -203,12 +204,10 @@ EmpowerScheduler::pull(int)
 			queue->_quantum = 0;
 			queue->_first_pkt = true;
 			_rr_order.pop_front();
-			_empty_scheduler_queues ++;
-			click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. PULL. No packets in queue lvap %s. Empty queues %d----- ",
+			click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. PULL. No packets in queue lvap %s. ----- ",
 																							 this,
 																							 __func__,
-																							 lvap_next_delireved_client.unparse().c_str(),
-																							 _empty_scheduler_queues);
+																							 lvap_next_delireved_client.unparse().c_str());
 
 			if (_rr_order.size() == 0)
 			{
@@ -221,7 +220,12 @@ EmpowerScheduler::pull(int)
 		}
 		else
 		{
+
 			Packet * next_packet = queue->_packets[queue->_head];
+			click_chatter("%{element} :: %s :: Packet %p got in PULL",
+													  this,
+													  __func__,
+													  next_packet);
 
 			if (queue->_first_pkt)
 			{
@@ -264,7 +268,10 @@ EmpowerScheduler::pull(int)
 																														 lvap_next_delireved_client.unparse().c_str(),
 																														 queue->_quantum,
 																														 queue->_total_consumed_time);
-
+				click_chatter("%{element} :: %s :: Packet %p sent in PULL",
+																	  this,
+																	  __func__,
+																	  next_packet);
 				return next_packet;
 			}
 			else
@@ -386,12 +393,18 @@ float EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client
 int EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, int pkt_length)
 {
 	MinstrelDstInfo * nfo = _el->get_dst_info(next_delireved_client);
-	int rate, nb_retransm;
+	int rate, nb_retransm, success_prob;
 
 	if (nfo)
 	{
 		rate = (nfo->rates[nfo->max_tp_rate]);
-		nb_retransm = (int) (nfo->probability[nfo->max_tp_rate] + 0.5) - 1; // To truncate properly
+		// Probabilities must be divided by 180 to obtain a percentage 97.88
+		success_prob = nfo->probability[nfo->max_tp_rate];
+		// To obtain the number of retransmissions, it must be 1/(percentg./100) -> 180*100 = 18000
+		if (success_prob != 0)
+			nb_retransm = (int) ((1 / (18000/success_prob)) + 0.5) - 1; // To truncate properly
+		else
+			nb_retransm = 0;
 	}
 	else
 	{
@@ -404,12 +417,13 @@ int EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, 
 		nb_retransm = 0;
 	}
 
-	click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Rate %d, nb_retrans %d length %d ----- ",
+	click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Rate %d, nb_retrans %d length %d success_prob %d ----- ",
 																				 this,
 																				 __func__,
 																				 rate,
 																				 nb_retransm,
-																				 pkt_length);
+																				 pkt_length,
+																				 success_prob);
 
 	int transm_time = (int) calc_transmit_time(rate, pkt_length);
 	int backoff = (int) calc_backoff(rate, nb_retransm);
@@ -428,7 +442,8 @@ int EmpowerScheduler::pkt_transmission_time(EtherAddress next_delireved_client, 
 }
 
 enum {
-	H_DEBUG
+	H_DEBUG,
+	H_LVAP_QUEUES
 };
 
 String EmpowerScheduler::read_handler(Element *e, void *thunk) {
@@ -436,6 +451,31 @@ String EmpowerScheduler::read_handler(Element *e, void *thunk) {
 	switch ((uintptr_t) thunk) {
 	case H_DEBUG:
 		return String(td->_debug) + "\n";
+	case H_LVAP_QUEUES: {
+		StringAccum sa;
+		for (LVAPQueuesIter it = td->lvap_queues()->begin(); it.live(); it++) {
+			sa << "sta ";
+			sa << it.key().unparse();
+			sa << " lvap_bssid ";
+			sa << it.value()._lvap.unparse();
+			sa << " head ";
+			sa << it.value()._head;
+			sa << " tail ";
+			sa << it.value()._tail;
+			sa << " dropped_packets ";
+			sa << it.value()._dropped_packets;
+			sa << " nb_pkts ";
+			sa << it.value()._nb_pkts;
+			sa << " quantum ";
+			sa << it.value()._quantum;
+			sa << " consumed_time ";
+			sa << it.value()._total_consumed_time;
+			sa << " first_pkt ";
+			sa << it.value()._first_pkt;
+			sa << "\n";
+		}
+		return sa.take_string();
+	}
 	default:
 		return String();
 	}
@@ -461,6 +501,7 @@ int EmpowerScheduler::write_handler(const String &in_s, Element *e,
 
 void EmpowerScheduler::add_handlers() {
 	add_read_handler("debug", read_handler, (void *) H_DEBUG);
+	add_read_handler("lvap_queues", read_handler, (void *) H_LVAP_QUEUES);
 	add_write_handler("debug", write_handler, (void *) H_DEBUG);
 }
 

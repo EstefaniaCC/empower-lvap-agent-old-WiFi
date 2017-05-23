@@ -35,6 +35,17 @@
 #include "empowercqm.hh"
 #include "empowerscheduler.hh"
 #include "empowerlvapmanager.hh"
+#include <click/router.hh>
+#include <click/task.hh>
+#include <click/standard/scheduleinfo.hh>
+#include <click/glue.hh>
+#include <click/straccum.hh>
+#include <click/packet_anno.hh>
+#include <click/userutils.hh>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 CLICK_DECLS
 
 
@@ -159,7 +170,7 @@ public:
 	const char *processing() const { return PUSH_TO_PULL; }
 
 	int configure(Vector<String> &, ErrorHandler *);
-	//void *cast(const char *);
+	void *cast(const char *);
 	int initialize(ErrorHandler *);
 
 	void push(int, Packet *);
@@ -169,7 +180,6 @@ public:
 
 	LVAPQueues* lvap_queues() { return &_lvap_queues; }
 	int quantum_division() {return _quantum_div;}
-	int emtpy_scheduler_queues() {return _empty_scheduler_queues;}
 	void compute_system_quantum(EtherAddress, int);
 	int pkt_transmission_time(EtherAddress, int);
 
@@ -178,16 +188,26 @@ public:
 		_quantum_div = new_quantum;
 	}
 
-	void add_queue_order(EtherAddress lvap_bssid)
-	{
-		_rr_order.push_back(lvap_bssid);
-		_empty_scheduler_queues++;
-	}
-
 	/*MinstrelDstInfo * get_dst_info(EtherAddress sta){
 		MinstrelDstInfo * nfo =_rc->neighbors()->findp(sta);
 		return nfo;
 	}*/
+
+	void request_queue(EtherAddress sta, EtherAddress lvap_bssid)
+	{
+		EmpowerClientQueue queue;
+
+		queue._lvap = lvap_bssid;
+		queue._sta = sta;
+		_lvap_queues.set(lvap_bssid, queue);
+
+		click_chatter("%{element} :: %s :: ----- LVAP bssid %s sta %s added to SCHEDULER QUEUE. Size %d ----- ",
+																			 this,
+																			 __func__,
+																			 lvap_bssid.unparse().c_str(),
+																			 sta.unparse().c_str(),
+																			 _lvap_queues.size());
+	}
 
 	void release_queue(EtherAddress sta)
 	{
@@ -234,7 +254,8 @@ public:
 				break;
 			}
 		}
-		_rr_order.erase(_rr_order.begin() + index);
+		if (index != -1)
+			_rr_order.erase(_rr_order.begin() + index);
 
 		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Packets in queue %s destroyed and queue erased ----- ",
 																							 this,
