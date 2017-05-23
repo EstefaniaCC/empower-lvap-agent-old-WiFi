@@ -78,6 +78,7 @@ EmpowerScheduler::cast(const char *n) {
 int EmpowerScheduler::initialize(ErrorHandler *) {
 	_empty_scheduler_queues = 0;
 	_quantum_div = 0;
+	//_next = 0;
 
 	return 0;
 }
@@ -149,14 +150,15 @@ EmpowerScheduler::push(int, Packet *p) {
 	ecq->_packets[ecq->_tail] = p;
 	ecq->_tail = (ecq->_tail + 1) % ecq->_max_size;
 	ecq->_nb_pkts++;
+	_rr_order.push_back(ess->_lvap_bssid);
 
-	if (_empty_scheduler_queues == 0 || (_lvap_queues.size() == _empty_scheduler_queues))
-	{
+	//if (_empty_scheduler_queues == 0 || (_lvap_queues.size() == _empty_scheduler_queues))
+	//{
 		_notifier.wake();
 		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Wake up damn ----- ",
 																						 this,
 																						 __func__);
-	}
+	//}
 }
 
 
@@ -165,7 +167,17 @@ EmpowerScheduler::pull(int)
 {
 	bool delivered_packet = false;
 
-	if (_lvap_queues.size() == _empty_scheduler_queues)
+	/*if (_lvap_queues.size() == _empty_scheduler_queues)
+	{
+		_notifier.sleep();
+		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Go to sleep damn ----- ",
+																								 this,
+																								 __func__);
+		return 0;
+	}
+	*/
+
+	if (_rr_order.size() == 0)
 	{
 		_notifier.sleep();
 		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Go to sleep damn ----- ",
@@ -174,7 +186,7 @@ EmpowerScheduler::pull(int)
 		return 0;
 	}
 
-	while (!delivered_packet && _lvap_queues.size() != _empty_scheduler_queues)
+	while (!delivered_packet && _rr_order.size() > 0)
 	{
 
 		EtherAddress lvap_next_delireved_client = _rr_order.front();
@@ -189,12 +201,23 @@ EmpowerScheduler::pull(int)
 		if (queue->_nb_pkts == 0)
 		{
 			queue->_quantum = 0;
+			queue->_first_pkt = true;
+			_rr_order.pop_front();
 			_empty_scheduler_queues ++;
 			click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. PULL. No packets in queue lvap %s. Empty queues %d----- ",
 																							 this,
 																							 __func__,
 																							 lvap_next_delireved_client.unparse().c_str(),
 																							 _empty_scheduler_queues);
+
+			if (_rr_order.size() == 0)
+			{
+				_notifier.sleep();
+				click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Go to sleep damn ----- ",
+																										 this,
+																										 __func__);
+				return 0;
+			}
 		}
 		else
 		{
@@ -244,10 +267,13 @@ EmpowerScheduler::pull(int)
 
 				return next_packet;
 			}
+			else
+			{
+				queue->_first_pkt = true;
+				_rr_order.pop_front();
+			}
 		}
-		queue->_first_pkt = true;
-		_rr_order.push_back(lvap_next_delireved_client);
-		_rr_order.pop_front();
+
 		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. PULL. Queue  %s has been placed at the end----- ",
 																									 this,
 																									 __func__,

@@ -250,7 +250,7 @@ private:
 	int _quantum_div; // 1000 microseconds
 	int _empty_scheduler_queues;
 	//TransmissionTimes _waiting_times;
-	int _next;
+	//int _next;
 	bool _debug;
 	ActiveNotifier _notifier;
 
