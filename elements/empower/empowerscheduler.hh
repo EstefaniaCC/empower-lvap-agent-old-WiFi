@@ -179,6 +179,7 @@ public:
 	void add_handlers();
 
 	LVAPQueues* lvap_queues() { return &_lvap_queues; }
+	Vector <EtherAddress> rr_order() { return _rr_order; }
 	int quantum_division() {return _quantum_div;}
 	void compute_system_quantum(EtherAddress, int);
 	int pkt_transmission_time(EtherAddress, int);
@@ -200,6 +201,8 @@ public:
 		queue._lvap = lvap_bssid;
 		queue._sta = sta;
 		_lvap_queues.set(lvap_bssid, queue);
+
+		_rr_order.push_back(lvap_bssid);
 
 		click_chatter("%{element} :: %s :: ----- LVAP bssid %s sta %s added to SCHEDULER QUEUE. Size %d ----- ",
 																			 this,
@@ -248,7 +251,7 @@ public:
 		int index = -1;
 		for (int i = 0; i < _rr_order.size(); i++)
 		{
-			if (_rr_order.at(0) == ess->_lvap_bssid)
+			if (_rr_order.at(i) == ess->_lvap_bssid)
 			{
 				index = i;
 				break;
