@@ -42,6 +42,7 @@
 #include <click/straccum.hh>
 #include <click/packet_anno.hh>
 #include <click/userutils.hh>
+#include <click/sync.hh>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -56,14 +57,11 @@ EmpowerScheduler(EL)
 
 =s EmPOWER
 
-Converts Ethernet packets to 802.11 packets with a LLC header. Setting
-the appropriate BSSID given the destination address. An EmPOWER Access
-Point generates one virtual BSSID called LVAP for each active station.
 
 =d
 
-Strips the Ethernet header off the front of the packet and pushes
-an 802.11 frame header and LLC header onto the packet.
+Schedules 802.11 frames following a DRR approach among the clients.
+For that it allocates the packets in a different queue for each client.
 
 Arguments are:
 
@@ -75,15 +73,9 @@ Turn debug on/off
 
 =back 8
 
-=a EmpowerWifiDecap
+=a EmpowerScheduler
 */
 
-/*enum empower_phy_types {
-    EMPOWER_PHY_80211a = 0x00,
-    EMPOWER_PHY_80211b = 0x01,
-	EMPOWER_PHY_80211g = 0x02
-};
-*/
 
 class EmpowerClientQueue {
 public:
@@ -98,6 +90,8 @@ public:
 	bool _first_pkt;
 	int _total_consumed_time;
 	int _dropped_packets;
+	int _transmitted_packets;
+	ReadWriteLock _mutex;
 	//enum empower_phy_types _phy;
 
 	EmpowerClientQueue() {
@@ -112,52 +106,25 @@ public:
 		_first_pkt = true;
 		_total_consumed_time = 0;
 		_dropped_packets = 0;
+		_transmitted_packets = 0;
 	}
 
 	~EmpowerClientQueue() {
+		_mutex.acquire_write();
 		while(_nb_pkts > 0)
 		{
 			_packets[_head]->kill();
 			_head = (_head + 1) % _max_size;
 			_nb_pkts--;
 		}
+		_mutex.release_write();
 	}
 };
 
-/*
-class TransmissionTime {
-public:
-	int _plcp_preamb;
-	int _plcp_header;
-	int _mac_header_body;
-	int _ack_mac_header;
-	int _sifs;
-	int _difs;
-	int _slot_time;
-	int _cw_min;
-	int _cw_max;
-
-	TransmissionTime (int plcp_reamb, int plcp_header, int mac_header_body, int ack_mac_header,
-		int sifs, int difs, int slot_time, int cw_min, int cw_max) {
-		_plcp_preamb = plcp_reamb; // microsec
-		_plcp_header = plcp_header;
-		_mac_header_body = mac_header_body;
-		_ack_mac_header = ack_mac_header;
-		_sifs = sifs;
-		_difs = difs;
-		_slot_time = slot_time;
-		_cw_min = cw_min;
-		_cw_max = cw_max;
-	}
-};
-*/
 
 
 typedef HashTable<EtherAddress, EmpowerClientQueue> LVAPQueues;
 typedef LVAPQueues::iterator LVAPQueuesIter;
-
-//typedef HashTable<int, TransmissionTime*> TransmissionTimes;
-//typedef TransmissionTimes::iterator TransmissionTimesIter;
 
 class EmpowerScheduler: public Element {
 public:
@@ -189,20 +156,18 @@ public:
 		_quantum_div = new_quantum;
 	}
 
-	/*MinstrelDstInfo * get_dst_info(EtherAddress sta){
-		MinstrelDstInfo * nfo =_rc->neighbors()->findp(sta);
-		return nfo;
-	}*/
-
 	void request_queue(EtherAddress sta, EtherAddress lvap_bssid)
 	{
 		EmpowerClientQueue queue;
 
 		queue._lvap = lvap_bssid;
 		queue._sta = sta;
-		_lvap_queues.set(lvap_bssid, queue);
 
+		_lvap_queues_mutex.acquire_write();
+		_lvap_queues.set(lvap_bssid, queue);
 		_rr_order.push_back(lvap_bssid);
+		_empty_scheduler_queues++;
+		_lvap_queues_mutex.release_write();
 
 		click_chatter("%{element} :: %s :: ----- LVAP bssid %s sta %s added to SCHEDULER QUEUE. Size %d ----- ",
 																			 this,
@@ -239,16 +204,22 @@ public:
 																					 this,
 																					 __func__,
 																					 ess->_lvap_bssid.unparse().c_str());
+		ec->_mutex.acquire_write();
 		while(ec->_nb_pkts > 0)
 		{
 			ec->_packets[ec->_head]->kill();
 			ec->_head = (ec->_head + 1) % ec->_max_size;
 			ec->_nb_pkts--;
 		}
+		ec->_mutex.release_write();
+
 		// Delete the queue
+		_lvap_queues_mutex.acquire_write();
 		_lvap_queues.erase(ess->_lvap_bssid);
 		// Delete it from the ordered queue
+		_lvap_queues_mutex.release_write();
 		int index = -1;
+		_lvap_queues_mutex.acquire_write();
 		for (int i = 0; i < _rr_order.size(); i++)
 		{
 			if (_rr_order.at(i) == ess->_lvap_bssid)
@@ -259,6 +230,7 @@ public:
 		}
 		if (index != -1)
 			_rr_order.erase(_rr_order.begin() + index);
+		_lvap_queues_mutex.release_write();
 
 		click_chatter("%{element} :: %s :: ----- SCHEDULER ELEMENT. Packets in queue %s destroyed and queue erased ----- ",
 																							 this,
@@ -273,10 +245,9 @@ private:
 	Vector <EtherAddress> _rr_order;
 	int _quantum_div; // 1000 microseconds
 	int _empty_scheduler_queues;
-	//TransmissionTimes _waiting_times;
-	//int _next;
 	bool _debug;
 	ActiveNotifier _notifier;
+	ReadWriteLock _lvap_queues_mutex;
 
 	static int write_handler(const String &, Element *, void *, ErrorHandler *);
 	static String read_handler(Element *, void *);
