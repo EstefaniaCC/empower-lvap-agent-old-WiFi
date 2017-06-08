@@ -257,7 +257,8 @@ public:
 	int handle_busyness_request(Packet *, uint32_t);
 	int handle_wtp_counters_request(Packet *, uint32_t);
 	int handle_cqm_links_request(Packet *, uint32_t);
-	int handle_channel_switch_request(Packet *, uint32_t);
+	int handle_channel_switch_announcement_to_lvap(Packet *, uint32_t);
+	int handle_update_wtp_channel_request(Packet *, uint32_t);
 
 	void send_hello();
 	void send_probe_request(EtherAddress, String, EtherAddress, int, empower_bands_types);
@@ -348,7 +349,7 @@ private:
 	class EmpowerDeAuthResponder *_edeauthr;
 	class EmpowerRXStats *_ers;
 	class EmpowerCQM *_cqm;
-	class EmpowerScheduler *_es;
+	//class EmpowerScheduler *_es;
 
 	String _empower_iface;
 	EtherAddress _empower_hwaddr;

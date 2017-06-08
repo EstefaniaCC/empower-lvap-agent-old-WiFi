@@ -22,6 +22,12 @@
 #include <clicknet/wifi.h>
 #include <clicknet/llc.h>
 #include <clicknet/ether.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <linux/if_tun.h>
 #include <elements/standard/counter.hh>
 #include <elements/wifi/minstrel.hh>
 #include <elements/wifi/transmissionpolicy.hh>
@@ -38,8 +44,13 @@ CLICK_DECLS
 
 EmpowerLVAPManager::EmpowerLVAPManager() :
 		_e11k(0), _ebs(0), _eauthr(0), _eassor(0), _edeauthr(0), _ers(0),
-		_cqm(0), _es(0), _timer(this), _seq(0), _period(5000), _debug(false) {
+		_cqm(0), _timer(this), _seq(0), _period(5000), _debug(false) {
 }
+
+/*EmpowerLVAPManager::EmpowerLVAPManager() :
+		_e11k(0), _ebs(0), _eauthr(0), _eassor(0), _edeauthr(0), _ers(0),
+		_cqm(0), _es(0), _timer(this), _seq(0), _period(5000), _debug(false) {
+}*/
 
 EmpowerLVAPManager::~EmpowerLVAPManager() {
 }
@@ -91,7 +102,7 @@ int EmpowerLVAPManager::configure(Vector<String> &conf,
 			                    .read_m("RES", res_strings)
 			                    .read_m("ERS", ElementCastArg("EmpowerRXStats"), _ers)
 			                    .read("CQM", ElementCastArg("EmpowerCQM"), _cqm)
-								.read_m("ES", ElementCastArg("EmpowerScheduler"), _es)
+								//.read_m("ES", ElementCastArg("EmpowerScheduler"), _es)
 								.read("PERIOD", _period)
 			                    .read("DEBUG", _debug)
 			                    .complete();
@@ -1237,6 +1248,18 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 
 	if (_lvaps.find(sta) == _lvaps.end()) {
 
+		click_chatter("%{element} :: %s :: NEW LVAP sta %s net_bssid %s lvap_bssid %s ssid %s [ %s ] assoc_id %d %s %s %s",
+							  this,
+							  __func__,
+							  sta.unparse_colon().c_str(),
+							  net_bssid.unparse().c_str(),
+							  lvap_bssid.unparse().c_str(),
+							  ssid.c_str(),
+						      assoc_id,
+						      set_mask ? "DL+UL" : "UL",
+						      authentication_state ? "AUTH" : "NO_AUTH",
+						      association_state ? "ASSOC" : "NO_ASSOC");
+
 		EmpowerStationState state;
 		state._sta = sta;
 		state._net_bssid = net_bssid;
@@ -1256,21 +1279,23 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 		state._group = group;
 		_lvaps.set(sta, state);
 
+
+		click_chatter("%{element} :: %s :: UPDATED LVAP sta %s net_bssid %s lvap_bssid %s ssid %s [ %s ] assoc_id %d %s %s %s",
+									  this,
+									  __func__,
+									  sta.unparse_colon().c_str(),
+									  net_bssid.unparse().c_str(),
+									  lvap_bssid.unparse().c_str(),
+									  ssid.c_str(),
+								      assoc_id,
+								      set_mask ? "DL+UL" : "UL",
+								      authentication_state ? "AUTH" : "NO_AUTH",
+								      association_state ? "ASSOC" : "NO_ASSOC");
+
 		/* Regenerate the BSSID mask */
 		compute_bssid_mask();
-
-		click_chatter("%{element} :: %s :: ----- New LVAP lvap_bssid %s station %s channel %u ----- ",
-											 this,
-											 __func__,
-											 lvap_bssid.unparse().c_str(),
-											 sta.unparse().c_str(),
-											 channel);
-
-
-		if (_es->lvap_queues()->find(sta) == _es->lvap_queues()->end()) {
-
-
-
+		/*
+		if (_es->lvap_queues()->find(lvap_bssid) == _es->lvap_queues()->end()) {
 			click_chatter("%{element} :: %s :: ----- New LVAP bssid %s sta %s in the SCHEDULER QUEUE ----- ",
 																	 this,
 																	 __func__,
@@ -1280,14 +1305,8 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 
 			_es->request_queue(sta, lvap_bssid);
 
-			//if (channel > 14)
-			//{
-				// 11a/11n physical layer
-			//	queue._phy = EMPOWER_PHY_80211a;
-			//}
-
 		}
-
+		*/
 
 		return 0;
 
@@ -1306,6 +1325,7 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 	ess->_ssid = ssid;
 
 	/* update fair buffer queue */
+	/*
 		if (_es && lvap_bssid != ess->_lvap_bssid) {
 			click_chatter("%{element} :: %s :: ----- LVAP UPDATE bssid %s sta %s in the SCHEDULER QUEUE ----- ",
 																				 this,
@@ -1315,34 +1335,9 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 			_es->release_queue(sta);
 			_es->request_queue(sta, lvap_bssid);
 	}
-
-	/*
-	if (channel != ess->_channel)
-	{
-		// Two situations can be found:
-		// 1) The client is being handovered to a new AP using other channel.
-		// 2) The current channel of the AP is being modified.
-		// TODO. Update iface too.
-
-		// Case 1. Different AP. Different channel
-		if (hwaddr != ess->_hwaddr)
-		{
-			_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid,
-										ess->_channel, ess->_iface_id, false, 1, channel, 1);
-			ess->_hwaddr = hwaddr;
-		}
-		// Case 2. Same AP. Different channel
-		else if (hwaddr == ess->_hwaddr)
-		{
-		// A beacon message will be sent to announce the "fake" channel switch
-			_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid,
-					ess->_channel, ess->_iface_id, false, 1, channel, 1);
-		}
-
-		ess->_iface_id = iface;
-		ess->_channel = channel;
-	}
 	*/
+
+
 
 	return 0;
 
@@ -1399,6 +1394,14 @@ int EmpowerLVAPManager::handle_set_port(Packet *p, uint32_t offset) {
 	_rcs[iface]->tx_policies()->insert(addr, mcs, ht_mcs, no_ack, tx_mcast, ur, rts_cts);
 	_rcs[iface]->forget_station(addr);
 
+	click_chatter("%{element} :: %s :: SET PORT station %s (%s, %u, %u)!",
+										 this,
+										 __func__,
+										 addr.unparse().c_str(),
+										 hwaddr.unparse().c_str(),
+										 channel,
+										 band);
+
 	return 0;
 
 }
@@ -1451,6 +1454,9 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 
 	struct empower_del_lvap *q = (struct empower_del_lvap *) (p->data() + offset);
 	EtherAddress sta = q->sta();
+	EtherAddress target_hwaddr = q->target_hwaddr();
+	int target_channel = q->target_channel();
+	empower_bands_types target_band = (empower_bands_types) q->target_band();
 
 	if (_debug) {
 		click_chatter("%{element} :: %s :: sta %s",
@@ -1476,13 +1482,38 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 		_edeauthr->send_deauth_request(sta, 0x0001, ess->_iface_id);
 	}
 
-	_es->release_queue(sta);
 
-		click_chatter("%{element} :: %s :: ----- Queue  from sta %s is going to be deleted ----- ",
+
+		/*click_chatter("%{element} :: %s :: ----- Queue  from sta %s is going to be deleted ----- ",
 																											 this,
 																											 __func__,
 																											 sta.unparse().c_str());
+	*/
+	click_chatter("%{element} :: %s :: DEL LVAP station %s bssid  %s channel %d, new channel %d new hwaddr %s!",
+											 this,
+											 __func__,
+											 sta.unparse().c_str(),
+											 ess->_lvap_bssid.unparse().c_str(),
+											 ess->_channel,
+											 target_channel,
+											 target_hwaddr.unparse().c_str());
 
+	// Send beacons in case that the target hwaddr and the current one do not match
+	if (target_channel != ess->_channel)
+	{
+
+		click_chatter("%{element} :: %s :: Sending beacon to sta %s!",
+													 this,
+													 __func__,
+													 sta.unparse().c_str());
+
+		// A beacon message will be sent to announce the "fake" channel switch
+		_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid,
+				ess->_channel, ess->_iface_id, false, 1, target_channel, 1);
+	}
+
+
+	//_es->release_queue(sta);
 	// erasing lvap
 	_lvaps.erase(_lvaps.find(sta));
 
@@ -1660,17 +1691,13 @@ int EmpowerLVAPManager::handle_nimg_request(Packet *p, uint32_t offset) {
 	return 0;
 }
 
-int EmpowerLVAPManager::handle_channel_switch_request(Packet *p, uint32_t offset) {
-	struct empower_channel_switch_request *q = (struct empower_channel_switch_request *) (p->data() + offset);
+// It is just a change in the channel. It's not related to a handover.
+int EmpowerLVAPManager::handle_channel_switch_announcement_to_lvap(Packet *p, uint32_t offset) {
+	struct empower_channel_switch_announcement_to_lvap *q = (struct empower_channel_switch_announcement_to_lvap *) (p->data() + offset);
 	EtherAddress sta = q->sta();
-	//EtherAddress hwaddr = q->hwaddr();
-	//empower_bands_types band = (empower_bands_types) q->band();
-	//uint8_t channel = q->channel();
 	uint8_t new_channel = q->new_channel();
 	uint8_t mode = q->mode();
 	uint8_t count = q->count();
-	//String ssid = q->ssid();
-
 
 	EmpowerStationState *ess = _lvaps.get_pointer(sta);
 
@@ -1681,18 +1708,32 @@ int EmpowerLVAPManager::handle_channel_switch_request(Packet *p, uint32_t offset
 					  sta.unparse_colon().c_str());
 		return 0;
 	}
+
 	// A beacon message will be sent to announce the "fake" channel switch
 	_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid,
 					ess->_channel, ess->_iface_id, false, mode, new_channel, count);
 
+	// Update the channel and the iface_id in the lvap
+	ess->_channel = new_channel;
+	ess->_iface_id = element_to_iface(ess->_hwaddr, new_channel, ess->_band);
+
 	return 0;
 }
 
-//int update_wtp_channel(EtherAddress dst, EtherAddress bssid,
-	//	String ssid, int channel, int iface_id, bool probe,
-		//bool channel_switch_mode, int new_channel, int channel_switch_count)
+int EmpowerLVAPManager:: handle_update_wtp_channel_request(Packet *p, uint32_t offset)
+{
+	struct empower_update_wtp_channel_request *q = (struct empower_update_wtp_channel_request *) (p->data() + offset);
+	uint8_t new_channel = q->new_channel();
 
+	//String cmd = "uci set wireless.radio0.channel";
+	//sprintf (cmd, "%d", new_channel);
+	char* cmd;
+	sprintf(cmd, "uci set wireless.radio0.channel %d", new_channel);
+	if (system(cmd) != 0)
+		click_chatter("failed: %s", cmd);
 
+	// iw moni0 set channel 6
+}
 
 void EmpowerLVAPManager::push(int, Packet *p) {
 
@@ -1781,8 +1822,8 @@ void EmpowerLVAPManager::push(int, Packet *p) {
 		case EMPOWER_PT_CQM_LINKS_REQUEST:
 			handle_cqm_links_request(p, offset);
 			break;
-		case EMPOWER_PT_CHANNEL_SWITCH_REQUEST:
-			handle_channel_switch_request(p, offset);
+		case EMPOWER_PT_CHANNEL_SWITCH_ANNOUNCEMENT_TO_LVAP:
+			handle_channel_switch_announcement_to_lvap(p, offset);
 			break;
 		default:
 			click_chatter("%{element} :: %s :: Unknown packet type: %d",

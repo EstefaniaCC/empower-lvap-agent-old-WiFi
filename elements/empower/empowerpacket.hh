@@ -82,7 +82,8 @@ enum empower_packet_types {
 	EMPOWER_PT_CQM_LINKS_RESPONSE = 0x44,       // ac -> wtp
 
 	// Loadbalancing
-	EMPOWER_PT_CHANNEL_SWITCH_REQUEST = 0x50 	// ac -> wtp
+	EMPOWER_PT_CHANNEL_SWITCH_ANNOUNCEMENT_TO_LVAP = 0x50, 	// ac -> wtp
+	EMPOWER_PT_UPDATE_WTP_CHANNEL_REQUEST = 0x51 	// ac -> wtp
 
 };
 
@@ -474,9 +475,21 @@ public:
 /* del vap packet format */
 struct empower_del_lvap : public empower_header {
   private:
-    uint8_t _sta[6]; /* EtherAddress */
+    uint8_t _sta[6]; 		/* EtherAddress */
+    uint8_t _hwaddr[6];		/* EtherAddress */
+	uint8_t _channel;		/* WiFi channel (int) */
+	uint8_t _band;			/* WiFi band (empower_band_types) */
+	uint8_t _target_hwaddr[6];		/* EtherAddress */
+	uint8_t _target_channel;		/* WiFi channel (int) */
+	uint8_t _target_band;			/* WiFi band (empower_band_types) */
   public:
-    EtherAddress sta() { return EtherAddress(_sta); }
+    EtherAddress sta() 				{ return EtherAddress(_sta); }
+    EtherAddress hwaddr()			{ return EtherAddress(_hwaddr); }
+    uint8_t      band()				{ return _band; }
+    uint8_t      channel()			{ return _channel; }
+    EtherAddress target_hwaddr()	{ return EtherAddress(_target_hwaddr); }
+	uint8_t      target_band()		{ return _target_band; }
+	uint8_t      target_channel()	{ return _target_channel; }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
 /* lvap status packet format */
@@ -793,26 +806,27 @@ struct empower_cqm_link {
     void set_ta(EtherAddress ta)   					    { memcpy(_ta, ta.data(), 6); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
-struct empower_channel_switch_request : public empower_header {
+struct empower_channel_switch_announcement_to_lvap : public empower_header {
   private:
     uint8_t _sta[6];	/* EtherAddress */
-    //uint8_t _hwaddr[6]; /* EtherAddress */
-    //uint8_t _channel;	/* WiFi channel (int) */
     //uint8_t _band;		/* WiFi band (empower_bands_types) */
     uint8_t _new_channel;	/* new channel number */
     uint8_t _count;	/* channel switch count */
     uint8_t _mode;	/* channel switch mode */
-    // char    _ssid[];	/* SSID (String) */
   public:
     EtherAddress sta()    	{ return EtherAddress(_sta); }
-	//EtherAddress hwaddr() 	{ return EtherAddress(_hwaddr); }
-	//uint8_t channel()     	{ return _channel; }
-	//uint8_t band()        	{ return _band; }
 	uint8_t new_channel()   { return _new_channel; }
 	uint8_t count()   		{ return _count; }
 	uint8_t mode()   		{ return _mode; }
-	//String  ssid()   	   	{ int len = length() - 17; return String((char *) _ssid, WIFI_MIN(len, WIFI_NWID_MAXSIZE)); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
+
+struct empower_update_wtp_channel_request : public empower_header {
+private:
+	uint8_t _new_channel;	/* new channel number */
+public:
+	uint8_t new_channel()   { return _new_channel; }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
 
 
 CLICK_ENDDECLS
