@@ -19,6 +19,7 @@
 #include <clicknet/wifi.h>
 #include <click/sync.hh>
 #include "empowerpacket.hh"
+#include "domaininfo.hh"
 CLICK_DECLS
 
 /*
