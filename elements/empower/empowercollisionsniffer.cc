@@ -19,6 +19,7 @@
 #include <click/string.hh>
 CLICK_DECLS
 
+/*
 void send_surrounding_aps_trigger_callback(Timer *timer, void *data) {
 	// send summary
 	SummaryTrigger *summary = (SummaryTrigger *) data;
@@ -33,6 +34,7 @@ void send_surrounding_aps_trigger_callback(Timer *timer, void *data) {
 	// re-schedule the timer
 	timer->schedule_after_msec(summary->_period);
 }
+*/
 
 EmpowerCollisionSniffer::EmpowerCollisionSniffer() :
 		_el(0), _debug(false) {
@@ -94,7 +96,7 @@ EmpowerCollisionSniffer::simple_action(Packet *p) {
 	int subtype = w->i_fc[0] & WIFI_FC0_SUBTYPE_MASK;
 	uint8_t *ptr;
 	String ssid_str = "";
-	char* ssid = "";
+	char* ssid;
 
 
 

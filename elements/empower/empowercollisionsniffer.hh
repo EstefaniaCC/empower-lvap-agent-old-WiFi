@@ -63,13 +63,13 @@ public:
 
 	int initialize(ErrorHandler *);
 	int configure(Vector<String> &, ErrorHandler *);
-	void run_timer(Timer *);
+	//void run_timer(Timer *);
 
 	void add_handlers();
 	Packet *simple_action(Packet *);
 
-	void add_surrounding_aps_trigger(int, EtherAddress, uint32_t, int16_t, uint16_t);
-	void del_surrounding_aps_trigger(uint32_t);
+	//void add_surrounding_aps_trigger(int, EtherAddress, uint32_t, int16_t, uint16_t);
+	//void del_surrounding_aps_trigger(uint32_t);
 
 	ReadWriteLock lock;
 	SurroundingAPsTable aps;
