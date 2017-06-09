@@ -68,7 +68,7 @@ EmpowerCollisionSniffer::simple_action(Packet *p) {
 				      p->length(),
 				      sizeof(struct click_wifi));
 		p->kill();
-		return;
+		return 0;
 	}
 
 	struct click_wifi *w = (struct click_wifi *) p->data();
@@ -128,7 +128,7 @@ EmpowerCollisionSniffer::simple_action(Packet *p) {
 
 		if (ssid_l && ssid_l[1]) {
 			ssid_str = String((char *) ssid_l + 2, WIFI_MIN((int)ssid_l[1], WIFI_NWID_MAXSIZE));
-			p = new char[ssid_str.length() + 1];
+			ssid = new char[ssid_str.length() + 1];
 			strcpy(ssid, ssid_str.c_str());
 
 		}
@@ -164,7 +164,7 @@ void EmpowerCollisionSniffer::update_surrounding_aps(EtherAddress bssid, int16_t
 		nfo->_iface_id = iface_id;
 		nfo->_ap = bssid;
 		nfo->_channel = channel;
-		nfo->_ssid = ssid);
+		nfo->_ssid = ssid;
 
 		click_chatter("%{element} :: %s :: NEW AP %s",
 									  this,
