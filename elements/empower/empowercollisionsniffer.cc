@@ -94,7 +94,7 @@ EmpowerCollisionSniffer::simple_action(Packet *p) {
 	int subtype = w->i_fc[0] & WIFI_FC0_SUBTYPE_MASK;
 	uint8_t *ptr;
 	String ssid_str = "";
-	char* p = "";
+	char* ssid = "";
 
 
 
@@ -129,7 +129,7 @@ EmpowerCollisionSniffer::simple_action(Packet *p) {
 		if (ssid_l && ssid_l[1]) {
 			ssid_str = String((char *) ssid_l + 2, WIFI_MIN((int)ssid_l[1], WIFI_NWID_MAXSIZE));
 			p = new char[ssid_str.length() + 1];
-			strcpy(p, ssid_str.c_str());
+			strcpy(ssid, ssid_str.c_str());
 
 		}
 	}
@@ -154,7 +154,7 @@ EmpowerCollisionSniffer::simple_action(Packet *p) {
 
 }
 
-void EmpowerCollisionSniffer::update_surrounding_aps(EtherAddress bssid, int16_t channel, uint8_t iface_id, String ssid) {
+void EmpowerCollisionSniffer::update_surrounding_aps(EtherAddress bssid, int16_t channel, uint8_t iface_id, char* ssid) {
 
 	DomainInfo *nfo = aps.get_pointer(bssid);
 
@@ -164,7 +164,7 @@ void EmpowerCollisionSniffer::update_surrounding_aps(EtherAddress bssid, int16_t
 		nfo->_iface_id = iface_id;
 		nfo->_ap = bssid;
 		nfo->_channel = channel;
-		nfo->_ssid = ssid.c_str();
+		nfo->_ssid = ssid);
 
 		click_chatter("%{element} :: %s :: NEW AP %s",
 									  this,
@@ -175,7 +175,7 @@ void EmpowerCollisionSniffer::update_surrounding_aps(EtherAddress bssid, int16_t
 
 
 	// Add sample
-	nfo->add_sample(ssid.c_str(), channel);
+	nfo->add_sample(ssid, channel);
 
 }
 

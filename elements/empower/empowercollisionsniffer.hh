@@ -85,7 +85,7 @@ private:
 	static String read_handler(Element *e, void *user_data);
 	static int write_handler(const String &, Element *, void *, ErrorHandler *);
 
-	void update_surrounding_aps(EtherAddress, int16_t, uint8_t, String);
+	void update_surrounding_aps(EtherAddress, int16_t, uint8_t, char*);
 
 };
 
