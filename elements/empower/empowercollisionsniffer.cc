@@ -16,6 +16,7 @@
 #include <elements/wifi/minstrel.hh>
 #include "empowerpacket.hh"
 #include "empowerlvapmanager.hh"
+#include <click/string.hh>
 CLICK_DECLS
 
 void send_surrounding_aps_trigger_callback(Timer *timer, void *data) {
@@ -92,7 +93,10 @@ EmpowerCollisionSniffer::simple_action(Packet *p) {
 	int type = w->i_fc[0] & WIFI_FC0_TYPE_MASK;
 	int subtype = w->i_fc[0] & WIFI_FC0_SUBTYPE_MASK;
 	uint8_t *ptr;
-	String ssid = "";
+	String ssid_str = "";
+	char* p = "";
+
+
 
 	// The SSID of the network can be obtained from the beacon frames
 	if (type == WIFI_FC0_TYPE_MGT && subtype == WIFI_FC0_SUBTYPE_BEACON)
@@ -123,7 +127,10 @@ EmpowerCollisionSniffer::simple_action(Packet *p) {
 		}
 
 		if (ssid_l && ssid_l[1]) {
-			ssid = String((char *) ssid_l + 2, WIFI_MIN((int)ssid_l[1], WIFI_NWID_MAXSIZE));
+			ssid_str = String((char *) ssid_l + 2, WIFI_MIN((int)ssid_l[1], WIFI_NWID_MAXSIZE));
+			p = new char[ssid_str.length() + 1];
+			strcpy(p, ssid_str.c_str());
+
 		}
 	}
 
@@ -152,7 +159,7 @@ void EmpowerCollisionSniffer::update_surrounding_aps(EtherAddress bssid, int16_t
 	DomainInfo *nfo = aps.get_pointer(bssid);
 
 	if (!nfo) {
-		aps[bssid] = DstInfo();
+		aps[bssid] = DomainInfo();
 		nfo = aps.get_pointer(bssid);
 		nfo->_iface_id = iface_id;
 		nfo->_ap = bssid;
