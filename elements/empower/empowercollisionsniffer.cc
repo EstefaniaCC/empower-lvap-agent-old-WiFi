@@ -46,6 +46,8 @@ EmpowerCollisionSniffer::~EmpowerCollisionSniffer() {
 int EmpowerCollisionSniffer::initialize(ErrorHandler *) {
 	_timer.initialize(this);
 	_timer.schedule_now();
+	_current_channel_pos = 0;
+	_period = 500;
 	return 0;
 }
 
@@ -60,10 +62,26 @@ int EmpowerCollisionSniffer::configure(Vector<String> &conf,
 
 }
 
+void EmpowerCollisionSniffer::run_timer(Timer *) {
+	// process stations
+	lock.acquire_write();
+
+	char* cmd;
+	sprintf(cmd, "iw moni0 set channel %d", _channels[_current_channel_pos]);
+	if (system(cmd) != 0)
+		click_chatter("failed: %s", cmd);
+
+
+
+	lock.release_write();
+	// rescheduler
+	_timer.schedule_after_msec(_period);
+}
+
 Packet *
 EmpowerCollisionSniffer::simple_action(Packet *p) {
 
-	if (p->length() < sizeof(struct click_wifi)) {
+	/*if (p->length() < sizeof(struct click_wifi)) {
 		click_chatter("%{element} :: %s :: Packet too small: %d Vs. %d",
 				      this,
 				      __func__,
@@ -71,34 +89,16 @@ EmpowerCollisionSniffer::simple_action(Packet *p) {
 				      sizeof(struct click_wifi));
 		p->kill();
 		return 0;
-	}
-
-	struct click_wifi *w = (struct click_wifi *) p->data();
-
-	unsigned wifi_header_size = sizeof(struct click_wifi);
-
-	if ((w->i_fc[1] & WIFI_FC1_DIR_MASK) == WIFI_FC1_DIR_DSTODS)
-		wifi_header_size += WIFI_ADDR_LEN;
-
-	if (WIFI_QOS_HAS_SEQ(w))
-		wifi_header_size += sizeof(uint16_t);
+	}*/
 
 	struct click_wifi_extra *ceh = WIFI_EXTRA_ANNO(p);
-
-	if ((ceh->magic == WIFI_EXTRA_MAGIC) && ceh->pad && (wifi_header_size & 3))
-		wifi_header_size += 4 - (wifi_header_size & 3);
-
-	if (p->length() < wifi_header_size) {
-		return p;
-	}
+	struct click_wifi *w = (struct click_wifi *) p->data();
 
 	int type = w->i_fc[0] & WIFI_FC0_TYPE_MASK;
 	int subtype = w->i_fc[0] & WIFI_FC0_SUBTYPE_MASK;
 	uint8_t *ptr;
 	String ssid_str = "";
 	char* ssid;
-
-
 
 	// The SSID of the network can be obtained from the beacon frames
 	if (type == WIFI_FC0_TYPE_MGT && subtype == WIFI_FC0_SUBTYPE_BEACON)
@@ -140,6 +140,9 @@ EmpowerCollisionSniffer::simple_action(Packet *p) {
 	EtherAddress ta = EtherAddress(w->i_addr2);
 	EtherAddress bssid = EtherAddress(w->i_addr3);
 
+	if (bssid.is_broadcast() || bssid.is_group())
+		return 0;
+
 	int8_t rssi;
 	memcpy(&rssi, &ceh->rssi, sizeof(rssi));
 
@@ -168,11 +171,18 @@ void EmpowerCollisionSniffer::update_surrounding_aps(EtherAddress bssid, int16_t
 		nfo->_channel = channel;
 		nfo->_ssid = ssid;
 
-		click_chatter("%{element} :: %s :: NEW AP %s",
+		click_chatter("%{element} :: %s :: NEW AP %s channel %d",
 									  this,
 									  __func__,
-									  bssid.unparse().c_str());
+									  bssid.unparse().c_str(),
+									  channel);
 	}
+
+	/*click_chatter("%{element} :: %s :: OLD AP %s channel %d",
+									  this,
+									  __func__,
+									  bssid.unparse().c_str(),
+									  channel);*/
 
 
 

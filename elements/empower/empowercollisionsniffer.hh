@@ -63,7 +63,7 @@ public:
 
 	int initialize(ErrorHandler *);
 	int configure(Vector<String> &, ErrorHandler *);
-	//void run_timer(Timer *);
+	void run_timer(Timer *);
 
 	void add_handlers();
 	Packet *simple_action(Packet *);
@@ -80,6 +80,10 @@ private:
 	Timer _timer;
 
 	bool _debug;
+	unsigned _period; // in ms
+	int _current_channel_pos;
+	int _channels [] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 36, 40, 44, 48, 52, 56, 60,
+	64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 149, 153, 157, 161, 165};
 
 	// Read/Write handlers
 	static String read_handler(Element *e, void *user_data);
