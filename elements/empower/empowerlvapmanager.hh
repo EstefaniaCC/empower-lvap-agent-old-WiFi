@@ -143,6 +143,10 @@ public:
 	bool _set_mask;
 	bool _authentication_status;
 	bool _association_status;
+	bool _csa_active;
+	int _csa_channel;
+	int _csa_switch_mode;
+	int _csa_switch_count;
 };
 
 // Cross structure mapping bssids to list of associated
@@ -332,6 +336,8 @@ public:
 		MinstrelDstInfo * nfo = _rcs.at(ess->_iface_id)->neighbors()->findp(sta);
 		return nfo;
 	}
+
+	void delete_lvap_after_csa(EtherAddress);
 
 private:
 

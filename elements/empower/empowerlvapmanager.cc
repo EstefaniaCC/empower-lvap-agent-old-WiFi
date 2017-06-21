@@ -1173,16 +1173,32 @@ int EmpowerLVAPManager::handle_del_vap(Packet *p, uint32_t offset) {
 
 int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 
+	click_chatter("%{element} :: %s :: ADD_LVAP",
+						      this,
+						      __func__);
+
 	struct empower_add_lvap *add_lvap = (struct empower_add_lvap *) (p->data() + offset);
+
+	click_chatter("%{element} :: %s :: ADD_LVAP 2",
+							      this,
+							      __func__);
 
 	EtherAddress sta = add_lvap->sta();
 	EtherAddress net_bssid = add_lvap->net_bssid();
 	EtherAddress lvap_bssid = add_lvap->lvap_bssid();
 	Vector<String> ssids;
 
+	click_chatter("%{element} :: %s :: ADD_LVAP 3",
+							      this,
+							      __func__);
+
 	uint8_t *ptr = (uint8_t *) add_lvap;
 	ptr += sizeof(struct empower_add_lvap);
 	uint8_t *end = ptr + (add_lvap->length() - sizeof(struct empower_add_lvap));
+
+	click_chatter("%{element} :: %s :: ADD_LVAP 4",
+							      this,
+							      __func__);
 
 	while (ptr != end) {
 		assert (ptr <= end);
@@ -1190,6 +1206,10 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 		ssids.push_back(entry->ssid());
 		ptr += entry->length() + 1;
 	}
+
+	click_chatter("%{element} :: %s :: ADD_LVAP 5",
+							      this,
+							      __func__);
 
 	if (ssids.size() < 2) {
 		click_chatter("%{element} :: %s :: invalid ssids size (%u)",
@@ -1213,6 +1233,10 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 	EtherAddress encap = add_lvap->encap();
 
     int iface = element_to_iface(hwaddr, channel, band);
+
+    click_chatter("%{element} :: %s :: ADD_LVAP 6",
+    							      this,
+    							      __func__);
 
 	if (iface == -1) {
 		   click_chatter("%{element} :: %s :: invalid resource element (%s, %u, %u)!",
@@ -1246,9 +1270,33 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 				      association_state ? "ASSOC" : "NO_ASSOC");
 	}
 
+	click_chatter("%{element} :: %s :: ADD_LVAP 7",
+	    							      this,
+	    							      __func__);
+
+	click_chatter("%{element} :: %s :: sta %s net_bssid %s lvap_bssid %s ssid %s  assoc_id %d %s %s %s",
+						  this,
+						  __func__,
+						  sta.unparse_colon().c_str(),
+						  net_bssid.unparse().c_str(),
+						  lvap_bssid.unparse().c_str(),
+						  ssid.c_str(),
+					      assoc_id,
+					      set_mask ? "DL+UL" : "UL",
+					      authentication_state ? "AUTH" : "NO_AUTH",
+					      association_state ? "ASSOC" : "NO_ASSOC");
+
+	click_chatter("%{element} :: %s :: ADD_LVAP 8",
+	    							      this,
+	    							      __func__);
+
 	if (_lvaps.find(sta) == _lvaps.end()) {
 
-		click_chatter("%{element} :: %s :: NEW LVAP sta %s net_bssid %s lvap_bssid %s ssid %s [ %s ] assoc_id %d %s %s %s",
+		click_chatter("%{element} :: %s :: ADD_LVAP 9",
+		    							      this,
+		    							      __func__);
+
+		click_chatter("%{element} :: %s :: NEW LVAP sta %s net_bssid %s lvap_bssid %s ssid %s assoc_id %d %s %s %s",
 							  this,
 							  __func__,
 							  sta.unparse_colon().c_str(),
@@ -1277,20 +1325,13 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 		state._ssid = ssid;
 		state._iface_id = iface;
 		state._group = group;
+		state._csa_active = false;
+		state._csa_channel = 0;
+		state._csa_switch_count = 0;
+		state._csa_switch_mode = 1;
 		_lvaps.set(sta, state);
 
 
-		click_chatter("%{element} :: %s :: UPDATED LVAP sta %s net_bssid %s lvap_bssid %s ssid %s [ %s ] assoc_id %d %s %s %s",
-									  this,
-									  __func__,
-									  sta.unparse_colon().c_str(),
-									  net_bssid.unparse().c_str(),
-									  lvap_bssid.unparse().c_str(),
-									  ssid.c_str(),
-								      assoc_id,
-								      set_mask ? "DL+UL" : "UL",
-								      authentication_state ? "AUTH" : "NO_AUTH",
-								      association_state ? "ASSOC" : "NO_ASSOC");
 
 		/* Regenerate the BSSID mask */
 		compute_bssid_mask();
@@ -1312,7 +1353,27 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 
 	}
 
+	click_chatter("%{element} :: %s :: ADD_LVAP 10",
+	    							      this,
+	    							      __func__);
+
+	click_chatter("%{element} :: %s :: UPDATED LVAP sta %s net_bssid %s lvap_bssid %s ssid %s  assoc_id %d %s %s %s",
+										  this,
+										  __func__,
+										  sta.unparse_colon().c_str(),
+										  net_bssid.unparse().c_str(),
+										  lvap_bssid.unparse().c_str(),
+										  ssid.c_str(),
+									      assoc_id,
+									      set_mask ? "DL+UL" : "UL",
+									      authentication_state ? "AUTH" : "NO_AUTH",
+									      association_state ? "ASSOC" : "NO_ASSOC");
+
 	EmpowerStationState *ess = _lvaps.get_pointer(sta);
+
+	click_chatter("%{element} :: %s :: ADD_LVAP 11",
+	    							      this,
+	    							      __func__);
 
 	ess->_lvap_bssid = lvap_bssid;
 	ess->_ssids = ssids;
@@ -1336,6 +1397,10 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 			_es->request_queue(sta, lvap_bssid);
 	}
 	*/
+
+	click_chatter("%{element} :: %s :: ADD_LVAP 12",
+	    							      this,
+	    							      __func__);
 
 
 
@@ -1452,11 +1517,18 @@ int EmpowerLVAPManager::handle_del_summary_trigger(Packet *p, uint32_t offset) {
 
 int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 
+	click_chatter("%{element} :: %s :: DEL_LVAP",
+					      this,
+					      __func__);
+
 	struct empower_del_lvap *q = (struct empower_del_lvap *) (p->data() + offset);
 	EtherAddress sta = q->sta();
-	EtherAddress target_hwaddr = q->target_hwaddr();
-	int target_channel = q->target_channel();
-	empower_bands_types target_band = (empower_bands_types) q->target_band();
+	bool csa_active = q->csa_active();
+
+	click_chatter("%{element} :: %s :: IS CSA ACTIVE? %s",
+					      this,
+					      __func__,
+						  csa_active ? "true" : "false");
 
 	if (_debug) {
 		click_chatter("%{element} :: %s :: sta %s",
@@ -1489,27 +1561,66 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 																											 __func__,
 																											 sta.unparse().c_str());
 	*/
-	click_chatter("%{element} :: %s :: DEL LVAP station %s bssid  %s channel %d, new channel %d new hwaddr %s!",
-											 this,
-											 __func__,
-											 sta.unparse().c_str(),
-											 ess->_lvap_bssid.unparse().c_str(),
-											 ess->_channel,
-											 target_channel,
-											 target_hwaddr.unparse().c_str());
+
 
 	// Send beacons in case that the target hwaddr and the current one do not match
-	if (target_channel != ess->_channel)
+	if (csa_active)
 	{
+		click_chatter("%{element} :: %s :: CSA ACTIVE",
+							      this,
+							      __func__);
 
-		click_chatter("%{element} :: %s :: Sending beacon to sta %s!",
-													 this,
-													 __func__,
-													 sta.unparse().c_str());
+		if (!ess->_csa_active && ess->_csa_switch_count == 0)
+		{
+			ess->_csa_active = true;
+			ess->_csa_channel = q->csa_channel();
+			ess->_csa_switch_mode = q->csa_switch_mode();
+			ess->_csa_switch_count = q->csa_switch_count();
 
-		// A beacon message will be sent to announce the "fake" channel switch
-		_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid,
-				ess->_channel, ess->_iface_id, false, 1, target_channel, 1);
+			click_chatter("%{element} :: %s :: CSA 0",
+										      this,
+										      __func__);
+
+			click_chatter("%{element} :: %s :: CSA counter is 0. initialize it to %d",
+										      this,
+										      __func__,
+											  ess->_csa_switch_count);
+		}
+
+		click_chatter("%{element} :: %s :: BEFORE THE DEL LVAP CHATTER",
+												      this,
+												      __func__);
+
+		click_chatter("%{element} :: %s :: DEL LVAP station %s bssid  %s channel %d, new channel %d new hwaddr %s remaining counter %d!",
+															 this,
+															 __func__,
+															 sta.unparse().c_str(),
+															 ess->_lvap_bssid.unparse().c_str(),
+															 ess->_channel,
+															 ess->_csa_channel,
+															 q->csa_hwaddr().unparse().c_str(),
+															 ess->_csa_switch_count);
+
+		if (ess->_csa_switch_count > 0)
+		{
+			click_chatter("%{element} :: %s :: Sending beacon to sta %s!",
+																 this,
+																 __func__,
+																 sta.unparse().c_str());
+
+			// A beacon message will be sent to announce the "fake" channel switch
+			_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid, ess->_channel, ess->_iface_id, false);
+		}
+
+	}
+
+	if (ess->_csa_switch_count > 0)
+	{
+		click_chatter("%{element} :: %s :: The counter beacon is higher than 0 for sta %s!",
+																		 this,
+																		 __func__,
+																		 sta.unparse().c_str());
+		return 0;
 	}
 
 
@@ -1568,7 +1679,7 @@ int EmpowerLVAPManager::handle_probe_response(Packet *p, uint32_t offset) {
 	// reply with lvap's ssdis
 	for (int i = 0; i < ess->_ssids.size(); i++) {
 		_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssids[i],
-				ess->_channel, ess->_iface_id, true, 1, 0, 0);
+				ess->_channel, ess->_iface_id, true);
 	}
 
 	click_chatter("%{element} :: %s :: PROBE RESPONSE 3 sta %s",
@@ -1579,7 +1690,7 @@ int EmpowerLVAPManager::handle_probe_response(Packet *p, uint32_t offset) {
 	// reply also with all vaps
 	for (VAPIter it = _vaps.begin(); it.live(); it++) {
 		_ebs->send_beacon(ess->_sta, it.value()._net_bssid, it.value()._ssid,
-				it.value()._channel, it.value()._iface_id, true, 1, 0, 0);
+				it.value()._channel, it.value()._iface_id, true);
 	}
 
 	click_chatter("%{element} :: %s :: PROBE RESPONSE 4 sta %s",
@@ -1711,7 +1822,7 @@ int EmpowerLVAPManager::handle_channel_switch_announcement_to_lvap(Packet *p, ui
 
 	// A beacon message will be sent to announce the "fake" channel switch
 	_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid,
-					ess->_channel, ess->_iface_id, false, mode, new_channel, count);
+					ess->_channel, ess->_iface_id, false);
 
 	// Update the channel and the iface_id in the lvap
 	ess->_channel = new_channel;
@@ -1935,6 +2046,26 @@ void EmpowerLVAPManager::compute_bssid_mask() {
 					  _debugfs_strings[i].c_str());
 
 	}
+
+}
+
+void EmpowerLVAPManager::delete_lvap_after_csa(EtherAddress sta) {
+
+	EmpowerStationState *ess = _lvaps.get_pointer(sta);
+
+	_lvaps.erase(_lvaps.find(sta));
+
+	// Forget station
+	int iface = ess->_iface_id;
+	_rcs[iface]->tx_policies()->tx_table()->erase(sta);
+	_rcs[iface]->forget_station(sta);
+
+	// Remove this VAP's BSSID from the mask
+	compute_bssid_mask();
+
+	click_chatter("%{element} :: %s :: LVAP HAS BEEN DELETED",
+																	      this,
+																	      __func__);
 
 }
 
