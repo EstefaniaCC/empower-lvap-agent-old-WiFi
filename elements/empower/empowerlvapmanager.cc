@@ -1570,22 +1570,12 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 							      this,
 							      __func__);
 
-		if (!ess->_csa_active && ess->_csa_switch_count == 0)
-		{
-			ess->_csa_active = true;
-			ess->_csa_channel = q->csa_channel();
-			ess->_csa_switch_mode = q->csa_switch_mode();
-			ess->_csa_switch_count = q->csa_switch_count();
+		ess->_csa_active = true;
+		ess->_csa_channel = q->csa_channel();
+		ess->_csa_switch_mode = q->csa_switch_mode();
+		ess->_csa_switch_count = q->csa_switch_count();
 
-			click_chatter("%{element} :: %s :: CSA 0",
-										      this,
-										      __func__);
 
-			click_chatter("%{element} :: %s :: CSA counter is 0. initialize it to %d",
-										      this,
-										      __func__,
-											  ess->_csa_switch_count);
-		}
 
 		click_chatter("%{element} :: %s :: BEFORE THE DEL LVAP CHATTER",
 												      this,
@@ -1601,16 +1591,10 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 															 q->csa_hwaddr().unparse().c_str(),
 															 ess->_csa_switch_count);
 
-		if (ess->_csa_switch_count > 0)
-		{
-			click_chatter("%{element} :: %s :: Sending beacon to sta %s!",
-																 this,
-																 __func__,
-																 sta.unparse().c_str());
 
-			// A beacon message will be sent to announce the "fake" channel switch
-			_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid, ess->_channel, ess->_iface_id, false);
-		}
+		// A beacon message will be sent to announce the "fake" channel switch
+		_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid, ess->_channel, ess->_iface_id, false);
+
 
 	}
 
@@ -1838,10 +1822,23 @@ int EmpowerLVAPManager:: handle_update_wtp_channel_request(Packet *p, uint32_t o
 
 	//String cmd = "uci set wireless.radio0.channel";
 	//sprintf (cmd, "%d", new_channel);
-	char* cmd;
+	/*char* cmd;
 	sprintf(cmd, "uci set wireless.radio0.channel %d", new_channel);
 	if (system(cmd) != 0)
 		click_chatter("failed: %s", cmd);
+		*/
+	char* cmd;
+	sprintf(cmd, "iw moni0 set channel %d", new_channel);
+	if (system(cmd) != 0)
+		click_chatter("%{element} :: %s :: Error in switching channel : %s",
+						      this,
+						      __func__,
+						      cmd);
+	else
+		click_chatter("%{element} :: %s :: Successful channel switch : %s",
+								      this,
+								      __func__,
+								      cmd);
 
 	// iw moni0 set channel 6
 }
