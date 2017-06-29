@@ -212,6 +212,11 @@ void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
 																	  ess->_csa_channel,
 																	  ess->_csa_switch_count);
 	}
+	else if (ess && ess->_csa_active && ess->_csa_switch_count == 0 && ess->_channel == ess->_csa_channel)
+	{
+		//_el->perform_channel_switch(ess->_csa_channel, ess->_iface_id);
+		ess->_csa_active = false;
+	}
 	else if (ess && ess->_csa_active && ess->_csa_switch_count == 0)
 	{
 		click_chatter("%{element} :: %s :: CSA COUNTER IS 0 IN BEACON. DELETING LVAP",

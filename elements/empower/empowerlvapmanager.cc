@@ -40,6 +40,11 @@
 #include "empowerrxstats.hh"
 #include "empowercqm.hh"
 #include "empowerscheduler.hh"
+
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 CLICK_DECLS
 
 EmpowerLVAPManager::EmpowerLVAPManager() :
@@ -1790,9 +1795,9 @@ int EmpowerLVAPManager::handle_nimg_request(Packet *p, uint32_t offset) {
 int EmpowerLVAPManager::handle_channel_switch_announcement_to_lvap(Packet *p, uint32_t offset) {
 	struct empower_channel_switch_announcement_to_lvap *q = (struct empower_channel_switch_announcement_to_lvap *) (p->data() + offset);
 	EtherAddress sta = q->sta();
-	uint8_t new_channel = q->new_channel();
-	uint8_t mode = q->mode();
-	uint8_t count = q->count();
+	uint8_t new_channel = q->csa_channel();
+	uint8_t mode = q->csa_switch_mode();
+	uint8_t count = q->csa_switch_count();
 
 	EmpowerStationState *ess = _lvaps.get_pointer(sta);
 
@@ -1805,12 +1810,17 @@ int EmpowerLVAPManager::handle_channel_switch_announcement_to_lvap(Packet *p, ui
 	}
 
 	// A beacon message will be sent to announce the "fake" channel switch
-	_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid,
-					ess->_channel, ess->_iface_id, false);
+	ess->_csa_active = true;
+	ess->_csa_channel = new_channel;
+	ess->_csa_switch_mode = mode;
+	ess->_csa_switch_count = count;
 
 	// Update the channel and the iface_id in the lvap
 	ess->_channel = new_channel;
 	ess->_iface_id = element_to_iface(ess->_hwaddr, new_channel, ess->_band);
+
+	// A beacon message will be sent to announce the "fake" channel switch
+	_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid, ess->_channel, ess->_iface_id, false);
 
 	return 0;
 }
@@ -1819,6 +1829,9 @@ int EmpowerLVAPManager:: handle_update_wtp_channel_request(Packet *p, uint32_t o
 {
 	struct empower_update_wtp_channel_request *q = (struct empower_update_wtp_channel_request *) (p->data() + offset);
 	uint8_t new_channel = q->new_channel();
+	uint8_t old_channel = q->old_channel();
+	EtherAddress hwaddr = q->hwaddr();
+	empower_bands_types band = (empower_bands_types) q->band();
 
 	//String cmd = "uci set wireless.radio0.channel";
 	//sprintf (cmd, "%d", new_channel);
@@ -1827,20 +1840,15 @@ int EmpowerLVAPManager:: handle_update_wtp_channel_request(Packet *p, uint32_t o
 	if (system(cmd) != 0)
 		click_chatter("failed: %s", cmd);
 		*/
-	char* cmd;
-	sprintf(cmd, "iw moni0 set channel %d", new_channel);
-	if (system(cmd) != 0)
-		click_chatter("%{element} :: %s :: Error in switching channel : %s",
-						      this,
-						      __func__,
-						      cmd);
-	else
-		click_chatter("%{element} :: %s :: Successful channel switch : %s",
-								      this,
-								      __func__,
-								      cmd);
+
 
 	// iw moni0 set channel 6
+
+	click_chatter("%{element} :: %s :: FUNCTION TO UPDATE THE CHANNEL 1",
+					      this,
+					      __func__);
+
+	perform_channel_switch(new_channel, old_channel, hwaddr, band);
 }
 
 void EmpowerLVAPManager::push(int, Packet *p) {
@@ -1932,6 +1940,9 @@ void EmpowerLVAPManager::push(int, Packet *p) {
 			break;
 		case EMPOWER_PT_CHANNEL_SWITCH_ANNOUNCEMENT_TO_LVAP:
 			handle_channel_switch_announcement_to_lvap(p, offset);
+			break;
+		case EMPOWER_PT_UPDATE_WTP_CHANNEL_REQUEST:
+			handle_update_wtp_channel_request(p, offset);
 			break;
 		default:
 			click_chatter("%{element} :: %s :: Unknown packet type: %d",
@@ -2063,6 +2074,98 @@ void EmpowerLVAPManager::delete_lvap_after_csa(EtherAddress sta) {
 	click_chatter("%{element} :: %s :: LVAP HAS BEEN DELETED",
 																	      this,
 																	      __func__);
+
+}
+
+void EmpowerLVAPManager::perform_channel_switch(uint8_t new_channel, uint8_t old_channel,  EtherAddress hwaddr, empower_bands_types band) {
+
+	click_chatter("%{element} :: %s :: FUNCTION TO UPDATE THE CHANNEL 2 A. Channel %d",
+						      this,
+						      __func__,
+							  new_channel);
+
+
+	int iface = element_to_iface(hwaddr, old_channel, band);
+	//ResourceElement* re = iface_to_element(iface);
+	ResourceElement re = _ifaces_to_elements.get(iface);
+	_elements_to_ifaces.erase(_elements_to_ifaces.find(re));
+	re._channel = new_channel;
+
+	_ifaces_to_elements.erase(_ifaces_to_elements.find(iface));
+	_ifaces_to_elements.set(iface, re);
+
+	_elements_to_ifaces.set(re, iface);
+
+	char cmd[128] = "";
+	sprintf(cmd, "iw moni0 set channel %d", new_channel);
+
+
+	click_chatter("%{element} :: %s :: PRECHECK A",
+								  this,
+								  __func__);
+
+	click_chatter("%{element} :: %s :: SPRINTF CHECK A : %s",
+								  this,
+								  __func__,
+								  cmd);
+	system(cmd);
+
+	if (system(cmd) != 0)
+		click_chatter("%{element} :: %s :: Error in switching channel A: %s",
+							  this,
+							  __func__,
+							  cmd);
+	else
+		click_chatter("%{element} :: %s :: Successful channel switch A: %s",
+							  this,
+							  __func__,
+							  cmd);
+
+
+}
+
+void EmpowerLVAPManager::perform_channel_switch(uint8_t new_channel, int iface) {
+
+	click_chatter("%{element} :: %s :: FUNCTION TO UPDATE THE CHANNEL 2 B. Channel %d",
+						      this,
+						      __func__,
+							  new_channel);
+
+	//ResourceElement* re = iface_to_element(iface);
+	ResourceElement re = _ifaces_to_elements.get(iface);
+	_elements_to_ifaces.erase(_elements_to_ifaces.find(re));
+	re._channel = new_channel;
+
+	_ifaces_to_elements.erase(_ifaces_to_elements.find(iface));
+	_ifaces_to_elements.set(iface, re);
+
+	_elements_to_ifaces.set(re, iface);
+
+	char cmd[128] = "";
+	sprintf(cmd, "iw moni0 set channel %d", new_channel);
+
+
+	click_chatter("%{element} :: %s :: PRECHECK B",
+								  this,
+								  __func__);
+
+	click_chatter("%{element} :: %s :: SPRINTF CHECK B: %s",
+								  this,
+								  __func__,
+								  cmd);
+	system(cmd);
+
+	if (system(cmd) != 0)
+		click_chatter("%{element} :: %s :: Error in switching channel B: %s",
+							  this,
+							  __func__,
+							  cmd);
+	else
+		click_chatter("%{element} :: %s :: Successful channel switch B: %s",
+							  this,
+							  __func__,
+							  cmd);
+
 
 }
 

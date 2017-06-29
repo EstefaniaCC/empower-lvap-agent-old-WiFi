@@ -338,6 +338,8 @@ public:
 	}
 
 	void delete_lvap_after_csa(EtherAddress);
+	void perform_channel_switch(uint8_t, uint8_t, EtherAddress, empower_bands_types);
+	void perform_channel_switch(uint8_t, int);
 
 private:
 

@@ -472,7 +472,7 @@ public:
     EtherAddress lvap_bssid() { return EtherAddress(_lvap_bssid); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
-/* del vap packet format */
+/* del lvap packet format */
 struct empower_del_lvap : public empower_header {
   private:
     uint8_t _sta[6]; 		/* EtherAddress */
@@ -808,22 +808,30 @@ struct empower_cqm_link {
 struct empower_channel_switch_announcement_to_lvap : public empower_header {
   private:
     uint8_t _sta[6];	/* EtherAddress */
-    //uint8_t _band;		/* WiFi band (empower_bands_types) */
-    uint8_t _new_channel;	/* new channel number */
-    uint8_t _count;	/* channel switch count */
-    uint8_t _mode;	/* channel switch mode */
+    uint8_t _csa_flags;
+	uint8_t _csa_channel;
+	uint8_t _csa_switch_mode;
+	uint8_t _csa_switch_count;
   public:
-    EtherAddress sta()    	{ return EtherAddress(_sta); }
-	uint8_t new_channel()   { return _new_channel; }
-	uint8_t count()   		{ return _count; }
-	uint8_t mode()   		{ return _mode; }
+    EtherAddress sta()    			{ return EtherAddress(_sta); }
+    bool      	 csa_active()		{ return _csa_flags & 0x01;  }
+	uint8_t      csa_channel()		{ return _csa_channel; }
+	uint8_t      csa_switch_mode()	{ return _csa_switch_mode; }
+	uint8_t      csa_switch_count()	{ return _csa_switch_count; }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
+
 
 struct empower_update_wtp_channel_request : public empower_header {
 private:
 	uint8_t _new_channel;	/* new channel number */
+	uint8_t _hwaddr[6];		/* EtherAddress */
+	uint8_t _old_channel;	/* WiFi channel (int) */
+	uint8_t _band;			/* WiFi band (empower_band_types) */
 public:
-	uint8_t new_channel()   { return _new_channel; }
+	uint8_t 		new_channel()   { return _new_channel; }
+	uint8_t    		band()      	{ return _band; }
+	uint8_t   		old_channel()   { return _old_channel; }
+	EtherAddress 	hwaddr()    	{ return EtherAddress(_hwaddr); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
 
