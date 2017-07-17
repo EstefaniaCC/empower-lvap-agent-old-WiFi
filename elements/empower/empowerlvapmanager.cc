@@ -1334,6 +1334,7 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 		state._csa_channel = 0;
 		state._csa_switch_count = 0;
 		state._csa_switch_mode = 1;
+		state._target_hwaddr = hwaddr;
 		_lvaps.set(sta, state);
 
 
@@ -1579,7 +1580,7 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 		ess->_csa_channel = q->csa_channel();
 		ess->_csa_switch_mode = q->csa_switch_mode();
 		ess->_csa_switch_count = q->csa_switch_count();
-
+		ess->_target_hwaddr = q->csa_hwaddr();
 
 
 		click_chatter("%{element} :: %s :: BEFORE THE DEL LVAP CHATTER",
@@ -1816,8 +1817,8 @@ int EmpowerLVAPManager::handle_channel_switch_announcement_to_lvap(Packet *p, ui
 	ess->_csa_switch_count = count;
 
 	// Update the channel and the iface_id in the lvap
-	ess->_channel = new_channel;
-	ess->_iface_id = element_to_iface(ess->_hwaddr, new_channel, ess->_band);
+	//ess->_channel = new_channel;
+	//ess->_iface_id = element_to_iface(ess->_hwaddr, new_channel, ess->_band);
 
 	// A beacon message will be sent to announce the "fake" channel switch
 	_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid, ess->_channel, ess->_iface_id, false);

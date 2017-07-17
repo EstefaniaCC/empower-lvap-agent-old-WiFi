@@ -147,6 +147,7 @@ public:
 	int _csa_channel;
 	int _csa_switch_mode;
 	int _csa_switch_count;
+	EtherAddress _target_hwaddr;
 };
 
 // Cross structure mapping bssids to list of associated
