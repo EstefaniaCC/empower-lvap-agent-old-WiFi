@@ -81,6 +81,15 @@ enum empower_packet_types {
 	EMPOWER_PT_CQM_LINKS_REQUEST = 0x43,        // ac -> wtp
 	EMPOWER_PT_CQM_LINKS_RESPONSE = 0x44,       // ac -> wtp
 
+	// Multicast address transmission policies
+	EMPOWER_PT_INCOM_MCAST_REQUEST = 0x45,		// wtp -> ac
+	EMPOWER_PT_INCOM_MCAST_RESPONSE = 0x46,		// ac -> wtp
+
+	// IGMP messages
+	EMPOWER_PT_IGMP_REQUEST = 0x47,				// wtp -> ac
+	EMPOWER_PT_DEL_MCAST_ADDR = 0x48,			// ac -> wtp
+	EMPOWER_PT_DEL_MCAST_RECEIVER = 0x49,		// ac -> wtp
+
 	// Loadbalancing
 	EMPOWER_PT_CHANNEL_SWITCH_ANNOUNCEMENT_TO_LVAP = 0x50, 	// ac -> wtp
 	EMPOWER_PT_UPDATE_WTP_CHANNEL_REQUEST = 0x51 	// ac -> wtp
@@ -445,7 +454,7 @@ struct ssid_entry {
     void    set_ssid(String ssid)      { memset(_ssid, 0, _length); memcpy(_ssid, ssid.data(), ssid.length()); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
-/* add vap packet format */
+/* add lvap packet format */
 struct empower_add_lvap : public empower_header {
 private:
     uint16_t	 _group;			/* lvap group */
@@ -454,6 +463,7 @@ private:
     uint8_t      _hwaddr[6];		/* EtherAddress */
     uint8_t      _channel;			/* WiFi channel (int) */
     uint8_t      _band;				/* WiFi band (empower_band_types) */
+    uint8_t      _lvap_band;           /* WiFi lvap band (empower_band_types) */
     uint8_t      _sta[6];			/* EtherAddress */
     uint8_t      _encap[6];			/* EtherAddress */
     uint8_t      _net_bssid[6];		/* EtherAddress */
@@ -462,6 +472,7 @@ private:
 public:
     uint16_t     group()      { return ntohs(_group); }
     uint8_t      band()       { return _band; }
+    uint8_t      lvap_band()  { return _lvap_band; }
     uint8_t      channel()    { return _channel; }
     bool         flag(int f)  { return ntohs(_flags) & f;  }
     uint16_t     assoc_id()   { return ntohs(_assoc_id); }
@@ -502,11 +513,13 @@ private:
     uint8_t      _hwaddr[6];		/* EtherAddress */
     uint8_t      _channel;			/* WiFi channel (int) */
     uint8_t      _band;				/* WiFi band (empower_band_types) */
+    uint8_t      _lvap_band;        /* WiFi lvap band (empower_band_types) */
     uint8_t      _net_bssid[6];		/* EtherAddress */
     uint8_t      _lvap_bssid[6];	/* EtherAddress */
     ssid_entry  *_ssids[];			/* SSIDs (ssid_entry) */
 public:
     void set_band(uint8_t band)             { _band = band; }
+    void set_lvap_band(uint8_t lvap_band)   { _lvap_band = lvap_band; }
     void set_channel(uint8_t channel)       { _channel = channel; }
     void set_flag(uint16_t f)               { _flags = htons(ntohs(_flags) | f); }
     void set_assoc_id(uint16_t assoc_id)    { _assoc_id = htons(assoc_id); }
@@ -796,14 +809,43 @@ public:
 /* cqm link entry */
 struct empower_cqm_link {
   private:
-    uint8_t  _ta[6]; 			/* EtherAddress */
-    uint32_t _p_pdr;  			/* p_pdr [0-18000] */
-    uint32_t _p_available_bw;	/* p_available_bw [0-18000] */
+    uint8_t  _ta[6]; 					/* EtherAddress */
+    uint32_t _p_channel_busy_fraction;	/* p_channel_busy_fraction [0-18000] */
+    uint32_t _p_throughput;				/* p_throughput [0-18000] */
+    uint32_t _p_available_bw;			/* p_available_bw [0-18000] */
+    uint32_t _p_pdr;  					/* p_pdr [0-18000] */
+    uint32_t _p_attainable_throughput;	/* p_available_bw [0-18000] */
   public:
-    void set_p_pdr(uint32_t p_pdr) 						{ _p_pdr = htonl(p_pdr); }
-    void set_p_available_bw(uint32_t p_available_bw) 	{ _p_available_bw = htonl(p_available_bw); }
-    void set_ta(EtherAddress ta)   					    { memcpy(_ta, ta.data(), 6); }
+    void set_p_pdr(uint32_t p_pdr) 										{ _p_pdr = htonl(p_pdr); }
+    void set_p_available_bw(uint32_t p_available_bw) 					{ _p_available_bw = htonl(p_available_bw); }
+    void set_p_throughput(uint32_t p_throughput) 						{ _p_throughput = htonl(p_throughput); }
+    void set_p_attainable_throughput(uint32_t p_attainable_throughput) 	{ _p_attainable_throughput = htonl(p_attainable_throughput); }
+    void set_p_channel_busy_fraction(uint32_t p_channel_busy_fraction) 	{ _p_channel_busy_fraction = htonl(p_channel_busy_fraction); }
+    void set_ta(EtherAddress ta)   					   			 		{ memcpy(_ta, ta.data(), 6); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
+
+/* incomming multicast address request format */
+struct empower_incom_mcast_addr : public empower_header {
+  private:
+    uint8_t  _wtp[6]; 			/* EtherAddress */
+    uint8_t  _mcast_addr[6]; 	/* EtherAddress */
+    uint8_t  _iface;			/* OVS interface name (String) */
+  public:
+    void set_mcast_addr(EtherAddress mcast_addr) 	{ memcpy(_mcast_addr, mcast_addr.data(), 6); }
+    void set_wtp(EtherAddress wtp)   				{ memcpy(_wtp, wtp.data(), 6); }
+    void set_iface(int iface)         				{ _iface = iface; }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
+/* incomming multicast address response format */
+struct empower_incom_mcast_addr_response : public empower_header {
+  private:
+    uint8_t  _mcast_addr[6]; 	/* EtherAddress */
+    uint8_t  _iface;			/* OVS interface name (String) */
+  public:
+    EtherAddress mcast_addr() 	{ return EtherAddress(_mcast_addr); }
+    uint8_t iface()     		{ return _iface; }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
 
 struct empower_channel_switch_announcement_to_lvap : public empower_header {
   private:
@@ -834,6 +876,47 @@ public:
 	EtherAddress 	hwaddr()    	{ return EtherAddress(_hwaddr); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
+
+struct empower_igmp_request : public empower_header {
+  private:
+    uint8_t  _wtp[6]; 			/* EtherAddress */
+    uint8_t  _sta [6];			/* EtherAddress */
+    uint8_t  _mcast_addr[4]; 	/* IPAddress */
+    uint8_t  _igmp_type;		/* IGMP record type */
+  public:
+    void set_wtp(EtherAddress wtp)   				{ memcpy(_wtp, wtp.data(), 6); }
+    void set_sta(EtherAddress sta)                  { memcpy(_sta, sta.data(), 6); }
+    void set_mcast_addr(IPAddress mcast_addr) 		{ memcpy(_mcast_addr, mcast_addr.data(), 4); }
+    void set_igmp_type(int igmp_type)         		{ _igmp_type = igmp_type; }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
+/* delete multicast address format */
+struct empower_del_mcast_addr : public empower_header {
+  private:
+    uint8_t  _mcast_addr[6]; 	/* EtherAddress */
+    uint8_t  _hwaddr[6];		/* EtherAddress */
+	uint8_t  _channel;			/* WiFi channel (int) */
+	uint8_t  _band;				/* WiFi band (empower_band_types) */
+  public:
+    EtherAddress mcast_addr() 	{ return EtherAddress(_mcast_addr); }
+    uint8_t      band()      	{ return _band; }
+	uint8_t      channel()   	{ return _channel; }
+	EtherAddress hwaddr()    	{ return EtherAddress(_hwaddr); }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
+/* delete multicast receiver format */
+struct empower_del_mcast_receiver : public empower_header {
+  private:
+	uint8_t  _sta[6]; 			/* EtherAddress */
+	uint8_t  _hwaddr[6];		/* EtherAddress */
+	uint8_t  _channel;			/* WiFi channel (int) */
+	uint8_t  _band;				/* WiFi band (empower_band_types) */
+  public:
+	EtherAddress sta()			{ return EtherAddress(_sta); }
+	uint8_t      band()			{ return _band; }
+	uint8_t      channel()		{ return _channel; }
+	EtherAddress hwaddr()		{ return EtherAddress(_hwaddr); }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
 
 
 CLICK_ENDDECLS

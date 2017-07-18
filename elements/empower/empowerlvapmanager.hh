@@ -4,12 +4,15 @@
 #include <click/element.hh>
 #include <click/timer.hh>
 #include <click/etheraddress.hh>
+#include <click/ipaddress.hh>
 #include <click/hashtable.hh>
 #include <clicknet/wifi.h>
 #include <click/sync.hh>
 #include <elements/wifi/minstrel.hh>
 #include "empowerrxstats.hh"
 #include "empowerpacket.hh"
+#include "igmppacket.hh"
+#include "empowermulticasttable.hh"
 CLICK_DECLS
 
 /*
@@ -138,6 +141,7 @@ public:
 	EtherAddress _hwaddr;
 	int _channel;
 	empower_bands_types _band;
+	empower_bands_types _lvap_band;
 	int _iface_id;
 	int _group;
 	bool _set_mask;
@@ -260,7 +264,10 @@ public:
 	int handle_add_busyness_trigger(Packet *, uint32_t);
 	int handle_del_busyness_trigger(Packet *, uint32_t);
 	int handle_busyness_request(Packet *, uint32_t);
+	int handle_incom_mcast_addr_response(Packet *, uint32_t);
 	int handle_wtp_counters_request(Packet *, uint32_t);
+	int handle_del_mcast_addr(Packet *, uint32_t);
+	int handle_del_mcast_receiver(Packet *, uint32_t);
 	int handle_cqm_links_request(Packet *, uint32_t);
 	int handle_channel_switch_announcement_to_lvap(Packet *, uint32_t);
 	int handle_update_wtp_channel_request(Packet *, uint32_t);
@@ -271,13 +278,9 @@ public:
 	void send_association_request(EtherAddress, EtherAddress, String, EtherAddress, int, empower_bands_types);
 	void send_status_lvap(EtherAddress);
 	void send_status_vap(EtherAddress);
-
 	void send_status_port(EtherAddress, int);
 	void send_status_port(EtherAddress, EtherAddress, int, empower_bands_types);
 	void send_status_port(EtherAddress, int, EtherAddress, int, empower_bands_types);
-
-	void send_message(Packet *p) { checked_output_push(0, p); }
-
 	void send_counters_response(EtherAddress, uint32_t);
 	void send_txp_counters_response(uint32_t, EtherAddress, uint8_t, empower_bands_types, EtherAddress);
 	void send_img_response(int, uint32_t, EtherAddress, uint8_t, empower_bands_types);
@@ -287,7 +290,9 @@ public:
 	void send_summary_trigger(SummaryTrigger *);
 	void send_busyness_trigger(uint32_t, uint32_t, uint32_t);
 	void send_lvap_stats_response(EtherAddress, uint32_t);
+	void send_incomming_mcast_address (EtherAddress, int);
 	void send_wtp_counters_response(uint32_t);
+	void send_igmp_report(EtherAddress, Vector<IPAddress>*, Vector<enum empower_igmp_record_type>*);
 	void send_cqm_links_response(uint32_t);
 
 	LVAP* lvaps() { return &_lvaps; }
@@ -358,7 +363,8 @@ private:
 	class EmpowerDeAuthResponder *_edeauthr;
 	class EmpowerRXStats *_ers;
 	class EmpowerCQM *_cqm;
-	//class EmpowerScheduler *_es;
+	class EmpowerMulticastTable * _mtbl;
+	class EmpowerHypervisor *_hv;
 
 	String _empower_iface;
 	EtherAddress _empower_hwaddr;

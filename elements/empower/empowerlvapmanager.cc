@@ -39,17 +39,17 @@
 #include "empowerdisassocresponder.hh"
 #include "empowerrxstats.hh"
 #include "empowercqm.hh"
-#include "empowerscheduler.hh"
-
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "empowerhypervisor.hh"
+
 CLICK_DECLS
 
 EmpowerLVAPManager::EmpowerLVAPManager() :
 		_e11k(0), _ebs(0), _eauthr(0), _eassor(0), _edeauthr(0), _ers(0),
-		_cqm(0), _timer(this), _seq(0), _period(5000), _debug(false) {
+		_cqm(0), _mtbl(0), _hv(0), _timer(this), _seq(0), _period(5000), _debug(false) {
 }
 
 /*EmpowerLVAPManager::EmpowerLVAPManager() :
@@ -107,7 +107,8 @@ int EmpowerLVAPManager::configure(Vector<String> &conf,
 			                    .read_m("RES", res_strings)
 			                    .read_m("ERS", ElementCastArg("EmpowerRXStats"), _ers)
 			                    .read("CQM", ElementCastArg("EmpowerCQM"), _cqm)
-								//.read_m("ES", ElementCastArg("EmpowerScheduler"), _es)
+			                    .read("HV", ElementCastArg("EmpowerHypervisor"), _hv)
+								.read("MTBL", ElementCastArg("EmpowerMulticastTable"), _mtbl)
 								.read("PERIOD", _period)
 			                    .read("DEBUG", _debug)
 			                    .complete();
@@ -398,6 +399,7 @@ void EmpowerLVAPManager::send_status_lvap(EtherAddress sta) {
 	status->set_hwaddr(ess._hwaddr);
 	status->set_channel(ess._channel);
 	status->set_band(ess._band);
+	status->set_lvap_band(ess._lvap_band);
 
 	uint8_t *ptr = (uint8_t *) status;
 	ptr += sizeof(struct empower_status_lvap);
@@ -938,10 +940,16 @@ void EmpowerLVAPManager::send_cqm_links_response(uint32_t cqm_links_id) {
 		EtherAddress ta = iter.value().sourceAddr;
 		uint32_t p_pdr = (uint32_t)(iter.value().p_pdr_last * 18000.0);
 		uint32_t p_available_bw = (uint32_t)(iter.value().p_available_bw_last * 18000.0);
+		uint32_t p_throughput = (uint32_t)(iter.value().p_throughput_last * 18000.0);
+		uint32_t p_channel_busy_fraction = (uint32_t)(iter.value().p_channel_busy_fraction_last * 18000.0);
+		uint32_t p_attainable_throughput = (uint32_t)(iter.value().p_attainable_throughput * 18000.0);
 		empower_cqm_link *entry = (empower_cqm_link *) ptr;
 		entry->set_ta(ta);
 		entry->set_p_pdr(p_pdr);
 		entry->set_p_available_bw(p_available_bw);
+		entry->set_p_throughput(p_throughput);
+		entry->set_p_channel_busy_fraction(p_channel_busy_fraction);
+		entry->set_p_attainable_throughput(p_attainable_throughput);
 		ptr += sizeof(struct empower_cqm_link);
 	}
 
@@ -949,6 +957,79 @@ void EmpowerLVAPManager::send_cqm_links_response(uint32_t cqm_links_id) {
 
 	output(0).push(p);
 
+}
+
+void EmpowerLVAPManager::send_incomming_mcast_address(EtherAddress mcast_address, int iface) {
+
+	int len = sizeof(empower_incom_mcast_addr);
+	WritablePacket *p = Packet::make(len);
+
+	if (!p) {
+		click_chatter("%{element} :: %s :: cannot make packet!",
+					  this,
+					  __func__);
+		return;
+	}
+
+	memset(p->data(), 0, p->length());
+
+	struct empower_incom_mcast_addr *mcast_addr = (struct empower_incom_mcast_addr *) (p->data());
+
+	mcast_addr->set_version(_empower_version);
+	mcast_addr->set_length(sizeof(empower_incom_mcast_addr));
+	mcast_addr->set_type(EMPOWER_PT_INCOM_MCAST_REQUEST);
+	mcast_addr->set_seq(get_next_seq());
+	mcast_addr->set_mcast_addr(mcast_address);
+	mcast_addr->set_wtp(_wtp);
+	mcast_addr->set_iface(iface);
+
+	click_chatter("%{element} :: %s :: New mcast address %s address from iface %d in wtp %s",
+				  this,
+				  __func__, mcast_address.unparse().c_str(), iface, _wtp.unparse().c_str());
+
+	output(0).push(p);
+}
+
+void EmpowerLVAPManager::send_igmp_report(EtherAddress src, Vector<IPAddress>* mcast_addresses, Vector<enum empower_igmp_record_type>* igmp_types) {
+
+	int grouprecord_counter;
+
+	for (grouprecord_counter = 0; grouprecord_counter < mcast_addresses->size(); grouprecord_counter++) {
+
+		//send message to the controller
+		int len = sizeof(empower_igmp_request);
+		WritablePacket *p = Packet::make(len);
+
+		if (!p) {
+			click_chatter("%{element} :: %s :: cannot make packet!",
+						  this,
+						  __func__);
+			return;
+		}
+
+		memset(p->data(), 0, p->length());
+
+		struct empower_igmp_request *igmp_request = (struct empower_igmp_request *) (p->data());
+
+		igmp_request->set_version(_empower_version);
+		igmp_request->set_length(sizeof(empower_igmp_request));
+		igmp_request->set_type(EMPOWER_PT_IGMP_REQUEST);
+		igmp_request->set_seq(get_next_seq());
+		igmp_request->set_mcast_addr(mcast_addresses->at(grouprecord_counter));
+		igmp_request->set_wtp(_wtp);
+		igmp_request->set_sta(src);
+		igmp_request->set_igmp_type(igmp_types->at(grouprecord_counter));
+
+		click_chatter("%{element} :: %s :: IGMP request type %d from sta %s for the mcast address %s from wtp %s",
+					  this,
+					  __func__,
+					  igmp_types->at(grouprecord_counter),
+					  src.unparse().c_str(),
+					  mcast_addresses->at(grouprecord_counter).unparse().c_str(),
+					  _wtp.unparse().c_str());
+
+		output(0).push(p);
+	}
 }
 
 void EmpowerLVAPManager::send_txp_counters_response(uint32_t counters_id, EtherAddress hwaddr, uint8_t channel, empower_bands_types band, EtherAddress mcast) {
@@ -1232,6 +1313,7 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 	EtherAddress hwaddr = add_lvap->hwaddr();
 	int channel = add_lvap->channel();
 	empower_bands_types band = (empower_bands_types) add_lvap->band();
+	empower_bands_types lvap_band = (empower_bands_types) add_lvap->lvap_band();
 	bool authentication_state = add_lvap->flag(EMPOWER_STATUS_LVAP_AUTHENTICATED);
 	bool association_state = add_lvap->flag(EMPOWER_STATUS_LVAP_ASSOCIATED);
 	bool set_mask = add_lvap->flag(EMPOWER_STATUS_LVAP_SET_MASK);
@@ -1323,6 +1405,7 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 		state._hwaddr = hwaddr;
 		state._channel = channel;
 		state._band = band;
+		state._lvap_band = lvap_band;
 		state._set_mask = set_mask;
 		state._authentication_status = authentication_state;
 		state._association_status = association_state;
@@ -1354,6 +1437,12 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 
 		}
 		*/
+
+		/* Request HV queue */
+		if (_hv) {
+			EmpowerStationState *ess = _lvaps.get_pointer(sta);
+			_hv->request_queue(ess->_lvap_bssid, sta);
+		}
 
 		return 0;
 
@@ -1583,18 +1672,20 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 
 	EmpowerStationState *ess = _lvaps.get_pointer(sta);
 
-	// If the bssids are different, this is a shared lvap and a deauth message should be sent before removing the lvap
-	if (ess->_lvap_bssid != ess->_net_bssid) {
-		_edeauthr->send_deauth_request(sta, 0x0001, ess->_iface_id);
+	// Release HV queue
+	if (_hv) {
+		_hv->release_queue(ess->_lvap_bssid);
 	}
 
+	// If the BSSIDs are different, this is a shared lvap and a deauth message should be sent before removing the lvap
+	if (ess->_lvap_bssid != ess->_net_bssid) {
+		_edeauthr->send_deauth_request(sta, 0x0001, ess->_iface_id);
+		// The receiver must me flush from all the groups in the multicast table
+		if (_mtbl) {
+			_mtbl->leaveallgroups(sta);
+		}
+	}
 
-
-		/*click_chatter("%{element} :: %s :: ----- Queue  from sta %s is going to be deleted ----- ",
-																											 this,
-																											 __func__,
-																											 sta.unparse().c_str());
-	*/
 
 
 	// Send beacons in case that the target hwaddr and the current one do not match
@@ -1641,15 +1732,13 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 		return 0;
 	}
 
-
-	//_es->release_queue(sta);
-	// erasing lvap
-	_lvaps.erase(_lvaps.find(sta));
-
 	// Forget station
 	int iface = ess->_iface_id;
 	_rcs[iface]->tx_policies()->tx_table()->erase(sta);
 	_rcs[iface]->forget_station(sta);
+
+	// erasing lvap
+	_lvaps.erase(_lvaps.find(sta));
 
 	// Remove this VAP's BSSID from the mask
 	compute_bssid_mask();
@@ -1820,6 +1909,7 @@ int EmpowerLVAPManager::handle_nimg_request(Packet *p, uint32_t offset) {
 	return 0;
 }
 
+
 // It is just a change in the channel. It's not related to a handover.
 int EmpowerLVAPManager::handle_channel_switch_announcement_to_lvap(Packet *p, uint32_t offset) {
 	struct empower_channel_switch_announcement_to_lvap *q = (struct empower_channel_switch_announcement_to_lvap *) (p->data() + offset);
@@ -1844,9 +1934,6 @@ int EmpowerLVAPManager::handle_channel_switch_announcement_to_lvap(Packet *p, ui
 	ess->_csa_switch_mode = mode;
 	ess->_csa_switch_count = count;
 
-	// Update the channel and the iface_id in the lvap
-	//ess->_channel = new_channel;
-	//ess->_iface_id = element_to_iface(ess->_hwaddr, new_channel, ess->_band);
 
 	// A beacon message will be sent to announce the "fake" channel switch
 	_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid, ess->_channel, ess->_iface_id, false);
@@ -1861,17 +1948,6 @@ int EmpowerLVAPManager:: handle_update_wtp_channel_request(Packet *p, uint32_t o
 	uint8_t old_channel = q->old_channel();
 	EtherAddress hwaddr = q->hwaddr();
 	empower_bands_types band = (empower_bands_types) q->band();
-
-	//String cmd = "uci set wireless.radio0.channel";
-	//sprintf (cmd, "%d", new_channel);
-	/*char* cmd;
-	sprintf(cmd, "uci set wireless.radio0.channel %d", new_channel);
-	if (system(cmd) != 0)
-		click_chatter("failed: %s", cmd);
-		*/
-
-
-	// iw moni0 set channel 6
 
 
 	if (_lvaps.empty())
@@ -1904,6 +1980,69 @@ int EmpowerLVAPManager:: handle_update_wtp_channel_request(Packet *p, uint32_t o
 					      __func__);
 
 	//perform_channel_switch(new_channel, old_channel, hwaddr, band);
+}
+
+
+int EmpowerLVAPManager::handle_incom_mcast_addr_response(Packet *p, uint32_t offset) {
+
+	struct empower_incom_mcast_addr_response *q = (struct empower_incom_mcast_addr_response *) (p->data() + offset);
+	EtherAddress mcast_addr = q->mcast_addr();
+	int iface = q->iface();
+
+	click_chatter("%{element} :: %s :: Receiving incom mcast address %s response for iface %d",
+				  this,
+				  __func__, mcast_addr.unparse().c_str(), iface);
+
+	TxPolicyInfo* def_tx_policy = _rcs[iface]->tx_policies()->default_tx_policy();
+
+	Vector<int> mcs;
+	mcs.push_back(*(def_tx_policy->_mcs.begin()));
+
+	Vector<int> ht_mcs;
+
+	_rcs[iface]->tx_policies()->insert(mcast_addr, mcs, ht_mcs, def_tx_policy->_no_ack, TX_MCAST_LEGACY, def_tx_policy->_ur_mcast_count, def_tx_policy->_rts_cts);
+
+	for (TxTableIter it_txp = _rcs[iface]->tx_policies()->tx_table()->begin(); it_txp.live(); it_txp++) {
+		click_chatter("%{element} :: %s :: Check policies %s, %d",
+					  this,
+					  __func__, it_txp.key().unparse().c_str(), it_txp.value()->_tx_mcast);
+				}
+	return 0;
+}
+
+int EmpowerLVAPManager::handle_del_mcast_addr(Packet *p, uint32_t offset) {
+
+	struct empower_del_mcast_addr *q = (struct empower_del_mcast_addr *) (p->data() + offset);
+	EtherAddress mcast_addr = q->mcast_addr();
+	EtherAddress hwaddr = q->hwaddr();
+	int channel = q->channel();
+	empower_bands_types band = (empower_bands_types) q->band();
+	int iface_id = element_to_iface(hwaddr, channel, band);
+
+	click_chatter("%{element} :: %s :: Receiving delete mcast address %s response",
+				  this,
+				  __func__, mcast_addr.unparse().c_str());
+
+	_rcs[iface_id]->tx_policies()->remove(mcast_addr);
+
+	return 0;
+}
+
+int EmpowerLVAPManager::handle_del_mcast_receiver(Packet *p, uint32_t offset) {
+
+	struct empower_del_mcast_receiver *q = (struct empower_del_mcast_receiver *) (p->data() + offset);
+	EtherAddress sta = q->sta();
+
+	click_chatter("%{element} :: %s :: Receiving delete mcast receiver %s response",
+				  this,
+				  __func__,
+				  sta.unparse().c_str());
+
+	if (_mtbl) {
+		_mtbl->leaveallgroups(sta);
+	}
+
+	return 0;
 }
 
 void EmpowerLVAPManager::push(int, Packet *p) {
@@ -1989,6 +2128,9 @@ void EmpowerLVAPManager::push(int, Packet *p) {
 			break;
 		case EMPOWER_PT_BUSYNESS_REQUEST:
 			handle_busyness_request(p, offset);
+			break;
+		case EMPOWER_PT_INCOM_MCAST_RESPONSE:
+			handle_incom_mcast_addr_response(p, offset);
 			break;
 		case EMPOWER_PT_CQM_LINKS_REQUEST:
 			handle_cqm_links_request(p, offset);
@@ -2331,6 +2473,8 @@ String EmpowerLVAPManager::read_handler(Element *e, void *thunk) {
 			sa << " band ";
 			sa << it.value()._band;
 			sa << " iface_id ";
+			sa << " lvap_band ";
+			sa << it.value()._lvap_band;
 			sa << it.value()._iface_id;
 			sa << " group ";
 			sa << it.value()._group;
