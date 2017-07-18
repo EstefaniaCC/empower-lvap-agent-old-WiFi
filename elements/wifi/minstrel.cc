@@ -237,13 +237,8 @@ void Minstrel::assign_rate(Packet *p_in)
 			ceh->max_tries3 = 0;
 			return;
 		}
-		if (tx_policy->_ht_mcs.size()) {
-			_neighbors.insert(dst, MinstrelDstInfo(dst, tx_policy->_ht_mcs, true));
-			nfo = _neighbors.findp(dst);
-		} else {
-			_neighbors.insert(dst, MinstrelDstInfo(dst, tx_policy->_mcs, false));
-			nfo = _neighbors.findp(dst);
-		}
+
+		nfo = insert_neighbor(tx_policy, dst);
 	}
 
 	int ndx;

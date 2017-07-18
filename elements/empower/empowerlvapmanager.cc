@@ -1390,6 +1390,9 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 	ess->_association_status = association_state;
 	ess->_set_mask = set_mask;
 	ess->_ssid = ssid;
+	// New
+	ess->_channel = channel;
+	ess->_iface_id = iface;
 
 	/* update fair buffer queue */
 	/*
@@ -1417,6 +1420,10 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 int EmpowerLVAPManager::handle_set_port(Packet *p, uint32_t offset) {
 
 	struct empower_set_port *q = (struct empower_set_port *) (p->data() + offset);
+
+	click_chatter("%{element} :: %s :: SET PORT",
+												 this,
+												 __func__);
 
 	EtherAddress addr = q->addr();
 	EtherAddress hwaddr = q->hwaddr();
@@ -1462,19 +1469,40 @@ int EmpowerLVAPManager::handle_set_port(Packet *p, uint32_t offset) {
 		   return 0;
 	}
 
+	click_chatter("%{element} :: %s :: SET PORT station %s (%s, %u, %u)!",
+											 this,
+											 __func__,
+											 addr.unparse().c_str(),
+											 hwaddr.unparse().c_str(),
+											 channel,
+											 band);
+
 	_rcs[iface]->tx_policies()->insert(addr, mcs, ht_mcs, no_ack, tx_mcast, ur, rts_cts);
+
+	for (TxTableIter it_txp = _rcs[iface]->tx_policies()->tx_table()->begin(); it_txp.live(); it_txp++) {
+			click_chatter("%{element} :: %s :: Check policies sta %s, %d",
+						  this,
+						  __func__, it_txp.key().unparse().c_str(), it_txp.value()->_tx_mcast);
+	}
+
+
 	_rcs[iface]->forget_station(addr);
 
-	click_chatter("%{element} :: %s :: SET PORT station %s (%s, %u, %u)!",
-										 this,
-										 __func__,
-										 addr.unparse().c_str(),
-										 hwaddr.unparse().c_str(),
-										 channel,
-										 band);
+	MinstrelDstInfo *nfo = _rcs.at(iface)->neighbors()->findp(addr);
+
+	if (!nfo || !nfo->rates.size()) {
+		if (_debug) {
+			click_chatter("%{element} :: %s :: adding %s",
+					this,
+					__func__,
+					addr.unparse().c_str());
+		}
+
+		TxPolicyInfo * tx_policy = _rcs[iface]->tx_policies()->tx_table()->find(addr);
+		nfo = _rcs.at(iface)->insert_neighbor(tx_policy, addr);
+	}
 
 	return 0;
-
 }
 
 int EmpowerLVAPManager::handle_add_busyness_trigger(Packet *p, uint32_t offset) {
@@ -1845,11 +1873,37 @@ int EmpowerLVAPManager:: handle_update_wtp_channel_request(Packet *p, uint32_t o
 
 	// iw moni0 set channel 6
 
+
+	if (_lvaps.empty())
+		perform_channel_switch(new_channel, old_channel, hwaddr, band);
+
+	for (LVAPIter it = _lvaps.begin(); it.live(); it++)
+	{
+		//nfo = _neighbors.findp(dst);
+		EmpowerStationState* ess = _lvaps.get_pointer(it.key());
+		if (!ess) {
+				click_chatter("%{element} :: %s :: unknown LVAP %s ignoring",
+							  this,
+							  __func__,
+							  it.key().unparse_colon().c_str());
+				return 0;
+			}
+
+		// A beacon message will be sent to announce the "fake" channel switch
+		ess->_csa_active = true;
+		ess->_csa_channel = new_channel;
+		ess->_csa_switch_mode = 1;
+		ess->_csa_switch_count = 10;
+
+		_ebs->send_beacon(ess->_sta, ess->_net_bssid, ess->_ssid, ess->_channel, ess->_iface_id, false);
+	}
+
+
 	click_chatter("%{element} :: %s :: FUNCTION TO UPDATE THE CHANNEL 1",
 					      this,
 					      __func__);
 
-	perform_channel_switch(new_channel, old_channel, hwaddr, band);
+	//perform_channel_switch(new_channel, old_channel, hwaddr, band);
 }
 
 void EmpowerLVAPManager::push(int, Packet *p) {
@@ -2089,6 +2143,17 @@ void EmpowerLVAPManager::perform_channel_switch(uint8_t new_channel, uint8_t old
 	int iface = element_to_iface(hwaddr, old_channel, band);
 	//ResourceElement* re = iface_to_element(iface);
 	ResourceElement re = _ifaces_to_elements.get(iface);
+
+	/*
+	MinstrelDstInfo *nfo;
+	for (LVAPIter it = _lvaps.begin(); it.live(); it++)
+	{
+		//nfo = _neighbors.findp(dst);
+		EmpowerStationState ess = _lvaps.get(it.key());
+		nfo = _rcs.at(ess._iface_id)->neighbors()->find(it.key());
+	}
+	*/
+
 	_elements_to_ifaces.erase(_elements_to_ifaces.find(re));
 	re._channel = new_channel;
 
@@ -2122,6 +2187,25 @@ void EmpowerLVAPManager::perform_channel_switch(uint8_t new_channel, uint8_t old
 							  __func__,
 							  cmd);
 
+	/*
+	for (LVAPIter it = _lvaps.begin(); it.live(); it++) {
+				send_status_lvap(it.key());
+			}
+			// send VAP status update messages
+			for (VAPIter it = _vaps.begin(); it.live(); it++) {
+				send_status_vap(it.key());
+			}
+			// send tx policies
+			for (REIter it_re = _ifaces_to_elements.begin(); it_re.live(); it_re++) {
+				int iface_id = it_re.key();
+				for (TxTableIter it_txp = get_tx_policies(iface_id)->tx_table()->begin(); it_txp.live(); it_txp++) {
+					EtherAddress sta = it_txp.key();
+					send_status_port(sta, iface_id, it_re.value()._hwaddr, it_re.value()._channel, it_re.value()._band);
+				}
+			}
+
+			*/
+
 
 }
 
@@ -2138,8 +2222,8 @@ void EmpowerLVAPManager::perform_channel_switch(uint8_t new_channel, int iface) 
 	re._channel = new_channel;
 
 	_ifaces_to_elements.erase(_ifaces_to_elements.find(iface));
-	_ifaces_to_elements.set(iface, re);
 
+	_ifaces_to_elements.set(iface, re);
 	_elements_to_ifaces.set(re, iface);
 
 	char cmd[128] = "";
@@ -2166,7 +2250,6 @@ void EmpowerLVAPManager::perform_channel_switch(uint8_t new_channel, int iface) 
 							  this,
 							  __func__,
 							  cmd);
-
 
 }
 

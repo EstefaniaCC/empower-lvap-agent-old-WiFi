@@ -205,20 +205,34 @@ void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
 		ptr += 2 + 3;
 		actual_length += 2 + 3;
 
-		click_chatter("%{element} :: %s :: INFO EN CSA. MODE %d, CHANNEL %d, COUNTER %d",
-																      this,
-																      __func__,
-																	  ess->_csa_switch_mode,
-																	  ess->_csa_channel,
-																	  ess->_csa_switch_count);
+		click_chatter("%{element} :: %s :: INFO EN CSA. MODE %d, CSA CHANNEL %d, CHANNEL %d, COUNTER %d",
+																		      this,
+																		      __func__,
+																			  ess->_csa_switch_mode,
+																			  ess->_csa_channel,
+																			  ess->_channel,
+																			  ess->_csa_switch_count);
 	}
+
 	else if (ess && ess->_csa_active && ess->_csa_switch_count == 0 && ess->_hwaddr == ess->_target_hwaddr)
 	{
-		//_el->perform_channel_switch(ess->_csa_channel, ess->_iface_id);
+		_el->perform_channel_switch(ess->_csa_channel, ess->_iface_id);
 		ess->_csa_active = false;
 		ess->_channel = ess->_csa_channel;
 		ess->_iface_id = _el->element_to_iface(ess->_hwaddr, ess->_csa_channel, ess->_band);
+
+		click_chatter("%{element} :: %s :: CSA IS 0. HWADDR AND TARGET HWADDR ARE THE SAME. MODE %d, CSA CHANNEL %d, CHANNEL %d, COUNTER %d",
+																		      this,
+																		      __func__,
+																			  ess->_csa_switch_mode,
+																			  ess->_csa_channel,
+																			  ess->_channel,
+																			  ess->_csa_switch_count);
+
+
+
 	}
+
 	else if (ess && ess->_csa_active && ess->_csa_switch_count == 0)
 	{
 		click_chatter("%{element} :: %s :: CSA COUNTER IS 0 IN BEACON. DELETING LVAP",
