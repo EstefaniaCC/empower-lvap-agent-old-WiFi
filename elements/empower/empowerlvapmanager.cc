@@ -162,10 +162,8 @@ int EmpowerLVAPManager::configure(Vector<String> &conf,
 			band = EMPOWER_BT_HT20;
 		}
 
-		ResourceElement elm = ResourceElement(hwaddr, channel, band);
+		ResourceElement* elm = new ResourceElement(hwaddr, channel, band);
 		_ifaces_to_elements.set(x, elm);
-		_elements_to_ifaces.set(elm, x);
-
 	}
 
 	return res;
@@ -1116,7 +1114,7 @@ void EmpowerLVAPManager::send_caps() {
 	_ports_lock.acquire_read();
 
 	int len = sizeof(empower_caps);
-	len += _elements_to_ifaces.size() * sizeof(struct resource_elements_entry);
+	len += _ifaces_to_elements.size() * sizeof(struct resource_elements_entry);
 	len += _ports.size() * sizeof(struct port_elements_entry);
 
 	WritablePacket *p = Packet::make(len);
@@ -1142,7 +1140,7 @@ void EmpowerLVAPManager::send_caps() {
 	caps->set_type(EMPOWER_PT_CAPS);
 	caps->set_seq(get_next_seq());
 	caps->set_wtp(_wtp);
-	caps->set_nb_resources_elements(_elements_to_ifaces.size());
+	caps->set_nb_resources_elements(_ifaces_to_elements.size());
 	caps->set_nb_ports_elements(_ports.size());
 
 	uint8_t *ptr = (uint8_t *) caps;
@@ -1150,12 +1148,12 @@ void EmpowerLVAPManager::send_caps() {
 
 	uint8_t *end = ptr + (len - sizeof(struct empower_caps));
 
-	for (IfIter iter = _elements_to_ifaces.begin(); iter.live(); iter++) {
+	for (REIter iter = _ifaces_to_elements.begin(); iter.live(); iter++) {
 		assert (ptr <= end);
 		resource_elements_entry *entry = (resource_elements_entry *) ptr;
-		entry->set_hwaddr(iter.key()._hwaddr);
-		entry->set_channel(iter.key()._channel);
-		entry->set_band(iter.key()._band);
+		entry->set_hwaddr(iter.value()->_hwaddr);
+		entry->set_channel(iter.value()->_channel);
+		entry->set_band(iter.value()->_band);
 		ptr += sizeof(struct resource_elements_entry);
 	}
 
@@ -2202,7 +2200,7 @@ void EmpowerLVAPManager::compute_bssid_mask() {
 			}
 			// add to mask
 			for (i = 0; i < 6; i++) {
-				const uint8_t *hw = (const uint8_t *) _ifaces_to_elements[iface_id]._hwaddr.data();
+				const uint8_t *hw = (const uint8_t *) _ifaces_to_elements[iface_id]->_hwaddr.data();
 				const uint8_t *bssid = (const uint8_t *) it.value()._net_bssid.data();
 				bssid_mask[i] &= ~(hw[i] ^ bssid[i]);
 			}
@@ -2218,7 +2216,7 @@ void EmpowerLVAPManager::compute_bssid_mask() {
 			}
 			// add to mask
 			for (i = 0; i < 6; i++) {
-				const uint8_t *hw = (const uint8_t *) _ifaces_to_elements[iface_id]._hwaddr.data();
+				const uint8_t *hw = (const uint8_t *) _ifaces_to_elements[iface_id]->_hwaddr.data();
 				const uint8_t *bssid = (const uint8_t *) it.value()._net_bssid.data();
 				bssid_mask[i] &= ~(hw[i] ^ bssid[i]);
 			}
@@ -2276,33 +2274,27 @@ void EmpowerLVAPManager::delete_lvap_after_csa(EtherAddress sta) {
 
 void EmpowerLVAPManager::perform_channel_switch(uint8_t new_channel, uint8_t old_channel,  EtherAddress hwaddr, empower_bands_types band) {
 
-	click_chatter("%{element} :: %s :: FUNCTION TO UPDATE THE CHANNEL 2 A. Channel %d",
+	click_chatter("%{element} :: %s :: FUNCTION TO UPDATE THE CHANNEL 2 A. Channel %u. Old channel %u",
 						      this,
 						      __func__,
-							  new_channel);
-
+							  new_channel,
+							  old_channel);
 
 	int iface = element_to_iface(hwaddr, old_channel, band);
-	//ResourceElement* re = iface_to_element(iface);
-	ResourceElement re = _ifaces_to_elements.get(iface);
 
-	/*
-	MinstrelDstInfo *nfo;
-	for (LVAPIter it = _lvaps.begin(); it.live(); it++)
-	{
-		//nfo = _neighbors.findp(dst);
-		EmpowerStationState ess = _lvaps.get(it.key());
-		nfo = _rcs.at(ess._iface_id)->neighbors()->find(it.key());
+	if (iface == -1) {
+		   click_chatter("%{element} :: %s :: IFACE IS -1 (%s, %u, %u)!",
+									 this,
+									 __func__,
+									 hwaddr.unparse().c_str(),
+									 old_channel,
+									 band);
+		   return;
 	}
-	*/
 
-	_elements_to_ifaces.erase(_elements_to_ifaces.find(re));
-	re._channel = new_channel;
+	ResourceElement* re = _ifaces_to_elements.get(iface);
+	re->_channel = new_channel;
 
-	_ifaces_to_elements.erase(_ifaces_to_elements.find(iface));
-	_ifaces_to_elements.set(iface, re);
-
-	_elements_to_ifaces.set(re, iface);
 
 	char cmd[128] = "";
 	sprintf(cmd, "iw moni0 set channel %d", new_channel);
@@ -2329,26 +2321,6 @@ void EmpowerLVAPManager::perform_channel_switch(uint8_t new_channel, uint8_t old
 							  __func__,
 							  cmd);
 
-	/*
-	for (LVAPIter it = _lvaps.begin(); it.live(); it++) {
-				send_status_lvap(it.key());
-			}
-			// send VAP status update messages
-			for (VAPIter it = _vaps.begin(); it.live(); it++) {
-				send_status_vap(it.key());
-			}
-			// send tx policies
-			for (REIter it_re = _ifaces_to_elements.begin(); it_re.live(); it_re++) {
-				int iface_id = it_re.key();
-				for (TxTableIter it_txp = get_tx_policies(iface_id)->tx_table()->begin(); it_txp.live(); it_txp++) {
-					EtherAddress sta = it_txp.key();
-					send_status_port(sta, iface_id, it_re.value()._hwaddr, it_re.value()._channel, it_re.value()._band);
-				}
-			}
-
-			*/
-
-
 }
 
 void EmpowerLVAPManager::perform_channel_switch(uint8_t new_channel, int iface) {
@@ -2358,15 +2330,17 @@ void EmpowerLVAPManager::perform_channel_switch(uint8_t new_channel, int iface) 
 						      __func__,
 							  new_channel);
 
-	//ResourceElement* re = iface_to_element(iface);
-	ResourceElement re = _ifaces_to_elements.get(iface);
-	_elements_to_ifaces.erase(_elements_to_ifaces.find(re));
-	re._channel = new_channel;
+	if (iface == -1) {
+			   click_chatter("%{element} :: %s :: IFACE IS -1 %d!",
+										 this,
+										 __func__,
+										 iface);
+			   return;
+		}
 
-	_ifaces_to_elements.erase(_ifaces_to_elements.find(iface));
 
-	_ifaces_to_elements.set(iface, re);
-	_elements_to_ifaces.set(re, iface);
+	ResourceElement* re = _ifaces_to_elements.get(iface);
+	re->_channel = new_channel;
 
 	char cmd[128] = "";
 	sprintf(cmd, "iw moni0 set channel %d", new_channel);
@@ -2484,15 +2458,15 @@ String EmpowerLVAPManager::read_handler(Element *e, void *thunk) {
 	}
 	case H_ELEMENTS: {
 		StringAccum sa;
-		for (IfIter iter = td->_elements_to_ifaces.begin(); iter.live(); iter++) {
-			sa << iter.key().unparse() << " -> " << iter.value()  << "\n";
+		for (REIter iter = td->_ifaces_to_elements.begin(); iter.live(); iter++) {
+			sa << iter.value()->unparse() << " -> " << iter.key()  << "\n";
 		}
 		return sa.take_string();
 	}
 	case H_INTERFACES: {
 		StringAccum sa;
 		for (REIter iter = td->_ifaces_to_elements.begin(); iter.live(); iter++) {
-			sa << iter.key() << " -> " << iter.value().unparse()  << "\n";
+			sa << iter.key() << " -> " << iter.value()->unparse()  << "\n";
 		}
 		return sa.take_string();
 	}
@@ -2626,7 +2600,7 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 			int iface_id = it_re.key();
 			for (TxTableIter it_txp = f->get_tx_policies(iface_id)->tx_table()->begin(); it_txp.live(); it_txp++) {
 				EtherAddress sta = it_txp.key();
-				f->send_status_port(sta, iface_id, it_re.value()._hwaddr, it_re.value()._channel, it_re.value()._band);
+				f->send_status_port(sta, iface_id, it_re.value()->_hwaddr, it_re.value()->_channel, it_re.value()->_band);
 			}
 		}
 		break;
