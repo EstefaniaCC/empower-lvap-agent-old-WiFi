@@ -353,7 +353,6 @@ public:
 	}
 
 	void delete_lvap_after_csa(EtherAddress);
-	void perform_channel_switch(uint8_t, uint8_t, EtherAddress, empower_bands_types);
 	void perform_channel_switch(uint8_t, int);
 
 private:
@@ -387,6 +386,7 @@ private:
 	EtherAddress _wtp;
 	unsigned int _period; // msecs
 	bool _debug;
+	int _announc_lvaps;
 
 	static int write_handler(const String &, Element *, void *, ErrorHandler *);
 	static String read_handler(Element *, void *);

@@ -193,10 +193,6 @@ void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
 	/* Channel switch */
 	if (ess && ess->_csa_active && ess->_csa_switch_count > 0)
 	{
-		click_chatter("%{element} :: %s :: CSA FIELD IS INCLUDED IN BEACON",
-														      this,
-														      __func__);
-
 		ptr[0] = WIFI_ELEMID_CHANSWITCHANN;
 		ptr[1] = 3; // length
 		ptr[2] = (uint8_t) ess->_csa_switch_mode; // channel switch mode Mode: 0 = no requirements on the receiving STA, 1 = no further frames until the scheduled channel switch ---> 1?
@@ -216,10 +212,7 @@ void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
 
 	else if (ess && ess->_csa_active && ess->_csa_switch_count == 0 && ess->_hwaddr == ess->_target_hwaddr)
 	{
-		_el->perform_channel_switch(ess->_csa_channel, ess->_iface_id);
-		ess->_csa_active = false;
-		ess->_channel = ess->_csa_channel;
-		ess->_iface_id = _el->element_to_iface(ess->_hwaddr, ess->_csa_channel, ess->_band);
+		int old_iface = _el->element_to_iface(ess->_hwaddr, ess->_channel, ess->_band);
 
 		click_chatter("%{element} :: %s :: CSA IS 0. HWADDR AND TARGET HWADDR ARE THE SAME. MODE %d, CSA CHANNEL %d, CHANNEL %d, COUNTER %d",
 																		      this,
@@ -229,8 +222,10 @@ void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
 																			  ess->_channel,
 																			  ess->_csa_switch_count);
 
-
-
+		ess->_csa_active = false;
+		//ess->_channel = ess->_csa_channel;
+		//ess->_iface_id = _el->element_to_iface(ess->_hwaddr, ess->_csa_channel, ess->_band);
+		_el->perform_channel_switch(ess->_csa_channel, old_iface);
 	}
 
 	else if (ess && ess->_csa_active && ess->_csa_switch_count == 0)
@@ -238,6 +233,7 @@ void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
 		click_chatter("%{element} :: %s :: CSA COUNTER IS 0 IN BEACON. DELETING LVAP",
 																      this,
 																      __func__);
+		//_el->perform_channel_switch(new_channel, iface);
 		_el->delete_lvap_after_csa(ess->_sta);
 	}
 
