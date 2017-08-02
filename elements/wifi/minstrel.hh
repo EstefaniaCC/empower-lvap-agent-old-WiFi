@@ -177,17 +177,15 @@ class Minstrel : public Element { public:
 	TransmissionPolicies * tx_policies() { return _tx_policies; }
 	bool forget_station(EtherAddress addr) { return _neighbors.erase(addr); }
 
-	MinstrelDstInfo * insert_neighbor(TxPolicyInfo * tx_policy, EtherAddress dst)
-	{
+	MinstrelDstInfo * insert_neighbor(EtherAddress dst, TxPolicyInfo * txp) {
 		MinstrelDstInfo *nfo;
-		if (tx_policy->_ht_mcs.size()) {
-					_neighbors.insert(dst, MinstrelDstInfo(dst, tx_policy->_ht_mcs, true));
-					nfo = _neighbors.findp(dst);
+		if (txp->_ht_mcs.size()) {
+			_neighbors.insert(dst, MinstrelDstInfo(dst, txp->_ht_mcs, true));
+			nfo = _neighbors.findp(dst);
 		} else {
-			_neighbors.insert(dst, MinstrelDstInfo(dst, tx_policy->_mcs, false));
+			_neighbors.insert(dst, MinstrelDstInfo(dst, txp->_mcs, false));
 			nfo = _neighbors.findp(dst);
 		}
-
 		return nfo;
 	}
 

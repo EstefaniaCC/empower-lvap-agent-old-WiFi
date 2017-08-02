@@ -141,17 +141,18 @@ public:
 	EtherAddress _hwaddr;
 	int _channel;
 	empower_bands_types _band;
-	empower_bands_types _lvap_band;
 	int _iface_id;
-	int _group;
 	bool _set_mask;
 	bool _authentication_status;
 	bool _association_status;
+
+	// CSA entries
 	bool _csa_active;
-	int _csa_channel;
 	int _csa_switch_mode;
 	int _csa_switch_count;
 	EtherAddress _target_hwaddr;
+	int _target_channel;
+	empower_bands_types _target_band;
 };
 
 // Cross structure mapping bssids to list of associated
@@ -196,7 +197,6 @@ public:
 	}
 
 	inline size_t hashcode() const {
-		//return _channel | _band;
 		return _hwaddr.hashcode();
 	}
 
@@ -225,7 +225,7 @@ inline bool operator==(const ResourceElement &a, const ResourceElement &b) {
 	return a._hwaddr == b._hwaddr && a._channel == b._channel && a._band == b._band;
 }
 
-typedef HashTable<int, ResourceElement*> RETable;
+typedef HashTable<int, ResourceElement *> RETable;
 typedef RETable::const_iterator REIter;
 
 class EmpowerLVAPManager: public Element {
@@ -298,6 +298,7 @@ public:
 	void send_igmp_report(EtherAddress, Vector<IPAddress>*, Vector<enum empower_igmp_record_type>*);
 	void send_cqm_links_response(uint32_t);
 
+	int remove_lvap(EmpowerStationState *);
 	LVAP* lvaps() { return &_lvaps; }
 	VAP* vaps() { return &_vaps; }
 	EtherAddress wtp() { return _wtp; }
@@ -305,14 +306,11 @@ public:
 	uint32_t get_next_seq() { return ++_seq; }
 
 	int element_to_iface(EtherAddress hwaddr, uint8_t channel, empower_bands_types band) {
-		for (REIter iter = _ifaces_to_elements.begin(); iter.live(); iter++)
-		{
-			if (iter.value()->_hwaddr == hwaddr && iter.value()->_channel == channel && iter.value()->_band == band)
-			{
+		for (REIter iter = _ifaces_to_elements.begin(); iter.live(); iter++) {
+			if (iter.value()->_hwaddr == hwaddr && iter.value()->_channel == channel && iter.value()->_band == band) {
 				return iter.key();
 			}
 		}
-
 		return -1;
 	}
 
@@ -358,7 +356,6 @@ public:
 private:
 
 	ReadWriteLock _ports_lock;
-
 	RETable _ifaces_to_elements;
 
 	void compute_bssid_mask();
@@ -371,7 +368,6 @@ private:
 	class EmpowerRXStats *_ers;
 	class EmpowerCQM *_cqm;
 	class EmpowerMulticastTable * _mtbl;
-	class EmpowerHypervisor *_hv;
 
 	String _empower_iface;
 	EtherAddress _empower_hwaddr;

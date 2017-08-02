@@ -146,8 +146,10 @@ struct empower_probe_request : public empower_header {
 struct empower_probe_response : public empower_header {
   private:
     uint8_t _sta[6]; /* EtherAddress */
+    char    _ssid[];    /* SSID (string) */
   public:
-    EtherAddress sta() { return EtherAddress(_sta); }
+    EtherAddress sta()	{ return EtherAddress(_sta); }
+    String ssid()		{ int len = length() - 16; return String((char *) _ssid, WIFI_MIN(len, WIFI_NWID_MAXSIZE)); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
 /* auth request packet format */
@@ -457,22 +459,18 @@ struct ssid_entry {
 /* add lvap packet format */
 struct empower_add_lvap : public empower_header {
 private:
-    uint16_t	 _group;			/* lvap group */
 	uint16_t     _flags;			/* Flags (empower_packet_flags) */
     uint16_t     _assoc_id;			/* Association id */
     uint8_t      _hwaddr[6];		/* EtherAddress */
     uint8_t      _channel;			/* WiFi channel (int) */
     uint8_t      _band;				/* WiFi band (empower_band_types) */
-    uint8_t      _lvap_band;           /* WiFi lvap band (empower_band_types) */
     uint8_t      _sta[6];			/* EtherAddress */
     uint8_t      _encap[6];			/* EtherAddress */
     uint8_t      _net_bssid[6];		/* EtherAddress */
     uint8_t      _lvap_bssid[6];	/* EtherAddress */
     ssid_entry * _ssids[];			/* SSIDs (ssid_entry) */
 public:
-    uint16_t     group()      { return ntohs(_group); }
     uint8_t      band()       { return _band; }
-    uint8_t      lvap_band()  { return _lvap_band; }
     uint8_t      channel()    { return _channel; }
     bool         flag(int f)  { return ntohs(_flags) & f;  }
     uint16_t     assoc_id()   { return ntohs(_assoc_id); }
@@ -486,20 +484,19 @@ public:
 /* del lvap packet format */
 struct empower_del_lvap : public empower_header {
   private:
-    uint8_t _sta[6]; 		/* EtherAddress */
-	uint8_t _csa_flags;
-	uint8_t _csa_hwaddr[6];		/* EtherAddress */
-	uint8_t _csa_channel;
-	uint8_t _csa_switch_mode;
-	uint8_t _csa_switch_count;
-
+    uint8_t _sta[6]; 			/* EtherAddress */
+    uint8_t _target_hwaddr[6];	/* EtherAddress */
+    uint8_t _target_channel;	/* WiFi channel (int) */
+    uint8_t _target_band;		/* WiFi band (empower_band_types) */
+    uint8_t _csa_switch_mode;
+    uint8_t _csa_switch_count;
   public:
     EtherAddress sta() 				{ return EtherAddress(_sta); }
-	bool      	 csa_active()		{ return _csa_flags & 0x01;  }
-	EtherAddress csa_hwaddr()		{ return EtherAddress(_csa_hwaddr); }
-	uint8_t      csa_channel()		{ return _csa_channel; }
-	uint8_t      csa_switch_mode()	{ return _csa_switch_mode; }
-	uint8_t      csa_switch_count()	{ return _csa_switch_count; }
+    uint8_t csa_switch_mode()		{ return _csa_switch_mode; }
+    uint8_t csa_switch_count()		{ return _csa_switch_count; }
+    uint8_t target_band()       	{ return _target_band; }
+    uint8_t target_channel()    	{ return _target_channel; }
+    EtherAddress target_hwaddr()	{ return EtherAddress(_target_hwaddr); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
 /* lvap status packet format */
@@ -513,13 +510,11 @@ private:
     uint8_t      _hwaddr[6];		/* EtherAddress */
     uint8_t      _channel;			/* WiFi channel (int) */
     uint8_t      _band;				/* WiFi band (empower_band_types) */
-    uint8_t      _lvap_band;        /* WiFi lvap band (empower_band_types) */
     uint8_t      _net_bssid[6];		/* EtherAddress */
     uint8_t      _lvap_bssid[6];	/* EtherAddress */
     ssid_entry  *_ssids[];			/* SSIDs (ssid_entry) */
 public:
     void set_band(uint8_t band)             { _band = band; }
-    void set_lvap_band(uint8_t lvap_band)   { _lvap_band = lvap_band; }
     void set_channel(uint8_t channel)       { _channel = channel; }
     void set_flag(uint16_t f)               { _flags = htons(ntohs(_flags) | f); }
     void set_assoc_id(uint16_t assoc_id)    { _assoc_id = htons(assoc_id); }
