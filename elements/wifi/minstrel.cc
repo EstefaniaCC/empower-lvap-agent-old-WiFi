@@ -238,7 +238,7 @@ void Minstrel::assign_rate(Packet *p_in)
 			return;
 		}
 
-		nfo = insert_neighbor(tx_policy, dst);
+		nfo = insert_neighbor(dst, tx_policy);
 	}
 
 	int ndx;
