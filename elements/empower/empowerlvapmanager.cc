@@ -1325,6 +1325,7 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 					  association_state ? "ASSOC" : "NO_ASSOC");
 	}
 
+	// if no lvap can be found, then create it
 	if (_lvaps.find(sta) == _lvaps.end()) {
 
 		EmpowerStationState state;
@@ -1362,6 +1363,22 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 	}
 
 	EmpowerStationState *ess = _lvaps.get_pointer(sta);
+
+	// if a csa procedure is active, then the target block MUST be a block
+	// hosted by this WTP. If not then abort. Otherwise ignore add_lvap.
+	if (ess->_csa_active) {
+	    int target_iface = element_to_iface(ess->_target_hwaddr, ess->_target_channel, ess->_target_band);
+		click_chatter("%{element} :: %s :: sta %s csa active, target hwaddr %s target channel %u target band %u iface_id %u, ignoring message",
+					  this,
+					  __func__,
+					  ess->_sta.unparse_colon().c_str(),
+					  ess->_target_hwaddr.unparse().c_str(),
+					  ess->_target_channel,
+					  ess->_target_band,
+					  target_iface);
+	    assert(target_iface >= 0);
+	    return 0;
+	}
 
 	ess->_lvap_bssid = lvap_bssid;
 	ess->_ssids = ssids;
@@ -1553,10 +1570,13 @@ int EmpowerLVAPManager::handle_del_lvap(Packet *p, uint32_t offset) {
 	}
 
 	// if channel is different then start CSA procedure, if target channel is zero it means
-	// that no target block is actually provided, ignore rest of the fields
+	// that no target block is actually provided, ignore rest of the fields.
+	// Notive that is the target block is  hosted ny this wtp, the then following add_lvap
+	// message must be ignored and an add_lvap message must be generated locally at the end
+	// of the CSA procedure
 	if ((q->target_channel() != 0) && (q->target_channel() != ess->_channel)) {
 
-		click_chatter("%{element} :: %s :: received target block with different channel (%u != %u)",
+		click_chatter("%{element} :: %s :: target channel %s is different from current channel %u, starting csa",
 				      this,
 				      __func__,
 					  q->target_channel(),
