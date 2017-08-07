@@ -191,11 +191,6 @@ public:
 			_hwaddr(hwaddr), _channel(channel), _band(band) {
 	}
 
-	void update_channel(int new_channel)
-	{
-		_channel = new_channel;
-	}
-
 	inline size_t hashcode() const {
 		return _hwaddr.hashcode();
 	}
@@ -338,19 +333,10 @@ public:
 	}
 
 	TransmissionPolicies * get_tx_policies(int iface_id) {
-		if (iface_id == -1)
-			return 0;
-		Minstrel * rc = _rcs[iface_id];
-		return rc->tx_policies();
+			Minstrel * rc = _rcs[iface_id];
+			return rc->tx_policies();
 	}
 
-	MinstrelDstInfo * get_dst_info(EtherAddress sta){
-		EmpowerStationState *ess = _lvaps.get_pointer(sta);
-		MinstrelDstInfo * nfo = _rcs.at(ess->_iface_id)->neighbors()->findp(sta);
-		return nfo;
-	}
-
-	void delete_lvap_after_csa(EtherAddress);
 	void perform_channel_switch(uint8_t, int);
 
 private:

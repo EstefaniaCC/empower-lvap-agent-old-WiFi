@@ -29,7 +29,7 @@
 CLICK_DECLS
 
 EmpowerBeaconSource::EmpowerBeaconSource() :
-		_el(0), _period(100), _timer(this), _debug(false) {
+		_el(0), _period(500), _timer(this), _debug(false) {
 }
 
 EmpowerBeaconSource::~EmpowerBeaconSource() {
@@ -153,7 +153,6 @@ void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
 		2 + 1 + /* ds param */
 		2 + WIFI_RATES_MAXSIZE + /* xrates */
 		2 + 4 + /* tim */
-		2 + 6 + /* channel switch announcement */
 		2 + 26 + /* ht capabilities */
 		2 + 22 + /* ht information */
 		0;
@@ -175,8 +174,6 @@ void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
 	}
 
 	struct click_wifi *w = (struct click_wifi *) p->data();
-
-	EmpowerStationState *ess = _el->lvaps()->get_pointer(dst);
 
 	w->i_fc[0] = WIFI_FC0_VERSION_0 | WIFI_FC0_TYPE_MGT;
 	if (probe) {
@@ -272,6 +269,7 @@ void EmpowerBeaconSource::send_beacon(EtherAddress dst, EtherAddress bssid,
 		ptr += 2 + 3;
 		actual_length += 2 + 3;
 	}
+
 	/* extended supported rates */
 	int num_xrates = rates.size() - WIFI_RATE_SIZE;
 	if (num_xrates > 0) {

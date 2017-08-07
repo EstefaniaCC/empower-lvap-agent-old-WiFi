@@ -842,22 +842,6 @@ struct empower_incom_mcast_addr_response : public empower_header {
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
 
-struct empower_channel_switch_announcement_to_lvap : public empower_header {
-  private:
-    uint8_t _sta[6];	/* EtherAddress */
-    uint8_t _csa_flags;
-	uint8_t _csa_channel;
-	uint8_t _csa_switch_mode;
-	uint8_t _csa_switch_count;
-  public:
-    EtherAddress sta()    			{ return EtherAddress(_sta); }
-    bool      	 csa_active()		{ return _csa_flags & 0x01;  }
-	uint8_t      csa_channel()		{ return _csa_channel; }
-	uint8_t      csa_switch_mode()	{ return _csa_switch_mode; }
-	uint8_t      csa_switch_count()	{ return _csa_switch_count; }
-} CLICK_SIZE_PACKED_ATTRIBUTE;
-
-
 struct empower_update_wtp_channel_request : public empower_header {
 private:
 	uint8_t _new_channel;	/* new channel number */
