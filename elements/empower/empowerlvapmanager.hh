@@ -141,6 +141,8 @@ public:
 	EtherAddress _hwaddr;
 	int _channel;
 	empower_bands_types _band;
+	empower_bands_types _supported_band;
+	empower_bands_types _target_band;
 	int _iface_id;
 	bool _set_mask;
 	bool _authentication_status;
@@ -152,7 +154,9 @@ public:
 	int _csa_switch_count;
 	EtherAddress _target_hwaddr;
 	int _target_channel;
-	empower_bands_types _target_band;
+	// ADD/DEL LVAP response entries
+	uint32_t _add_lvap_module_id;
+	uint32_t _del_lvap_module_id;
 };
 
 // Cross structure mapping bssids to list of associated
@@ -267,13 +271,12 @@ public:
 	int handle_del_mcast_addr(Packet *, uint32_t);
 	int handle_del_mcast_receiver(Packet *, uint32_t);
 	int handle_cqm_links_request(Packet *, uint32_t);
-	int handle_channel_switch_announcement_to_lvap(Packet *, uint32_t);
 	int handle_update_wtp_channel_request(Packet *, uint32_t);
 
 	void send_hello();
-	void send_probe_request(EtherAddress, String, EtherAddress, int, empower_bands_types);
+	void send_probe_request(EtherAddress, String, EtherAddress, int, empower_bands_types, empower_bands_types);
 	void send_auth_request(EtherAddress, EtherAddress);
-	void send_association_request(EtherAddress, EtherAddress, String, EtherAddress, int, empower_bands_types);
+	void send_association_request(EtherAddress, EtherAddress, String, EtherAddress, int, empower_bands_types, empower_bands_types);
 	void send_status_lvap(EtherAddress);
 	void send_status_vap(EtherAddress);
 	void send_status_port(EtherAddress, int);
@@ -292,6 +295,7 @@ public:
 	void send_wtp_counters_response(uint32_t);
 	void send_igmp_report(EtherAddress, Vector<IPAddress>*, Vector<enum empower_igmp_record_type>*);
 	void send_cqm_links_response(uint32_t);
+	void send_add_del_lvap_response(uint8_t, EtherAddress, uint32_t, uint32_t);
 
 	int remove_lvap(EmpowerStationState *);
 	LVAP* lvaps() { return &_lvaps; }
@@ -336,8 +340,6 @@ public:
 			Minstrel * rc = _rcs[iface_id];
 			return rc->tx_policies();
 	}
-
-	void perform_channel_switch(uint8_t, int);
 
 private:
 

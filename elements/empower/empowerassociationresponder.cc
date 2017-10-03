@@ -95,6 +95,14 @@ void EmpowerAssociationResponder::push(int, Packet *p) {
 		return;
 	}
 
+    if (ess->_csa_active) {
+		click_chatter("%{element} :: %s :: lvap %s csa active ignoring request.",
+				      this,
+				      __func__,
+				      ess->_sta.unparse().c_str());
+    	return;
+    }
+
 	// if this is an uplink only lvap then ignore request
 	if (!ess->_set_mask) {
 		p->kill();
@@ -386,9 +394,9 @@ void EmpowerAssociationResponder::push(int, Packet *p) {
 	// controller, otherwise ignore the message
 	if (ess->_authentication_status && ess->_lvap_bssid == bssid) {
 		if (htcaps && (ess->_band == EMPOWER_BT_HT20)) {
-			_el->send_association_request(src, bssid, ssid, ess->_hwaddr, ess->_channel, EMPOWER_BT_HT20);
+			_el->send_association_request(src, bssid, ssid, ess->_hwaddr, ess->_channel, ess->_band, EMPOWER_BT_HT20);
 		} else {
-			_el->send_association_request(src, bssid, ssid, ess->_hwaddr, ess->_channel, EMPOWER_BT_L20);
+			_el->send_association_request(src, bssid, ssid, ess->_hwaddr, ess->_channel, ess->_band, EMPOWER_BT_L20);
 		}
 		p->kill();
 		return;
@@ -403,6 +411,7 @@ void EmpowerAssociationResponder::send_association_response(EtherAddress dst,
 		uint16_t status, int channel, int iface_id) {
 
     EmpowerStationState *ess = _el->get_ess(dst);
+
 	ess->_association_status = true;
 
 	if (_debug) {

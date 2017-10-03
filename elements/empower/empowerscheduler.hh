@@ -92,7 +92,7 @@ public:
 	int _dropped_packets;
 	int _transmitted_packets;
 	ReadWriteLock _mutex;
-	//enum empower_phy_types _phy;
+	int _max_enquequed_pkts;
 
 	EmpowerClientQueue() {
 		_lvap = EtherAddress();
@@ -107,6 +107,7 @@ public:
 		_total_consumed_time = 0;
 		_dropped_packets = 0;
 		_transmitted_packets = 0;
+		_max_enquequed_pkts = 0;
 	}
 
 	~EmpowerClientQueue() {
@@ -248,6 +249,7 @@ private:
 	bool _debug;
 	ActiveNotifier _notifier;
 	ReadWriteLock _lvap_queues_mutex;
+
 
 	static int write_handler(const String &, Element *, void *, ErrorHandler *);
 	static String read_handler(Element *, void *);
