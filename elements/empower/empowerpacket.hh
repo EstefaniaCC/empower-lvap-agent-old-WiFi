@@ -93,7 +93,9 @@ enum empower_packet_types {
 
 	// ADD/DEL response messages
     EMPOWER_PT_ADD_LVAP_RESPONSE = 0x51,        // ac -> wtp
-    EMPOWER_PT_DEL_LVAP_RESPONSE = 0x52         // ac -> wtp
+    EMPOWER_PT_DEL_LVAP_RESPONSE = 0x52,         // ac -> wtp
+
+	EMPOWER_PT_ADD_NETWORK_SLICE = 0x56         // ac -> wtp
 
 };
 
@@ -907,6 +909,23 @@ struct empower_del_mcast_receiver : public empower_header {
 	uint8_t      band()			{ return _band; }
 	uint8_t      channel()		{ return _channel; }
 	EtherAddress hwaddr()		{ return EtherAddress(_hwaddr); }
+} CLICK_SIZE_PACKED_ATTRIBUTE;
+
+struct empower_add_network_slice : public empower_header {
+private:
+    uint8_t 	_dscp;				/* Traffic DSCP (int) */
+    char    	_ssid[];			/* SSID (String) */
+    uint8_t		_tenant_type;		/* Tenant type (Shared or unique) (empower_tenant_types) */
+    uint8_t 	_priority;			/* Priority of the slice (int) */
+    uint8_t 	_parent_priority;	/* Priority of the tenant (without considering types of traffic) (int) */
+    uint16_t	_aggregation_flags;	/* Aggregation flags */
+public:
+    uint8_t      dscp()						{ return _dscp; }
+    uint8_t      tenant_type()				{ return _tenant_type; }
+    uint8_t      priority()					{ return _priority; }
+    uint8_t      parent_priority()			{ return _parent_priority; }
+    bool         aggregation_flags(int f)	{ return ntohs(_aggregation_flags) & f; }
+    String       ssid()						{ int len = length() - 16; return String((char *) _ssid, WIFI_MIN(len, WIFI_NWID_MAXSIZE)); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
 CLICK_ENDDECLS

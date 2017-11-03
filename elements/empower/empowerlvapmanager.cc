@@ -36,7 +36,7 @@
 CLICK_DECLS
 
 EmpowerLVAPManager::EmpowerLVAPManager() :
-		_e11k(0), _ebs(0), _eauthr(0), _eassor(0), _edeauthr(0), _ers(0),
+		_e11k(0), _ebs(0), _eauthr(0), _eassor(0), _edeauthr(0), _ers(0), _eqoss(0),
 		_cqm(0), _mtbl(0), _timer(this), _seq(0), _period(5000), _debug(false) {
 }
 
@@ -88,6 +88,7 @@ int EmpowerLVAPManager::configure(Vector<String> &conf,
 			                    .read_m("RCS", rcs_strings)
 			                    .read_m("RES", res_strings)
 			                    .read_m("ERS", ElementCastArg("EmpowerRXStats"), _ers)
+								.read_m("EQOSS", ElementCastArg("EmpowerQoSScheduler"), _eqoss)
 			                    .read("CQM", ElementCastArg("EmpowerCQM"), _cqm)
 								.read("MTBL", ElementCastArg("EmpowerMulticastTable"), _mtbl)
 								.read("PERIOD", _period)
@@ -1167,6 +1168,8 @@ void EmpowerLVAPManager::send_caps() {
 int EmpowerLVAPManager::handle_caps_request(Packet *p, uint32_t offset) {
 
 	send_caps();
+	// TODO. Add default queues
+	//_eqoss->request_slice(_eqoss->default_dscp(), tenant, tenant_type, priority, parent_priority, aggregate);
 
 	return 0;
 
@@ -1871,6 +1874,22 @@ int EmpowerLVAPManager::handle_del_mcast_receiver(Packet *p, uint32_t offset) {
 	return 0;
 }
 
+int EmpowerLVAPManager::handle_add_network_slice(Packet *p, uint32_t offset) {
+
+	struct empower_add_network_slice *add_network_slice;
+	int dscp = add_network_slice->dscp();
+	String ssid = add_network_slice->ssid();
+	empower_tenant_types tenant_type = (empower_tenant_types) add_network_slice->tenant_type();
+	int priority = add_network_slice->priority();
+	int parent_priority = add_network_slice->parent_priority();
+	bool amsdu_aggregation = add_network_slice->aggregation_flags(EMPOWER_AMSDU_AGGREGATION);
+	String ssid = add_network_slice->ssid();
+
+	// message to the scheduler element to add a new queue
+	_eqoss->request_slice(dscp, ssid, tenant_type, priority, parent_priority, amsdu_aggregation);
+	return 0;
+}
+
 void EmpowerLVAPManager::push(int, Packet *p) {
 
 	/* This is a control packet coming from a Socket
@@ -1963,6 +1982,9 @@ void EmpowerLVAPManager::push(int, Packet *p) {
 			break;
 		case EMPOWER_PT_CAPS_REQUEST:
 			handle_caps_request(p, offset);
+			break;
+		case EMPOWER_PT_ADD_NETWORK_SLICE:
+			handle_add_network_slice(p, offset);
 			break;
 		default:
 			click_chatter("%{element} :: %s :: Unknown packet type: %d",
@@ -2088,6 +2110,7 @@ enum {
 	H_DEL_LVAP,
 	H_RECONNECT,
 	H_INTERFACES,
+	H_REQUEST_NETWORK_SLICE
 };
 
 String EmpowerLVAPManager::read_handler(Element *e, void *thunk) {
@@ -2294,6 +2317,56 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 		}
 		break;
 	}
+	case H_REQUEST_NETWORK_SLICE: {
+		Vector<String> tokens;
+		cp_spacevec(s, tokens);
+
+		if (tokens.size() != 6)
+			return errh->error("Setting a new network slice needs 6 parameters");
+
+		EtherAddress hwaddr;
+		int port_id;
+		String iface;
+
+		int dscp;
+		String tenant;
+		empower_tenant_types tenant_type;
+		int priority;
+		int parent_priority;
+		bool aggregate;
+
+		TrafficRulesQueues* slices = f->_eqoss->get_slices();
+		f->_eqoss->get_slices_lock()->acquire_write();
+
+		if (!IntArg().parse(tokens[0], dscp)) {
+			return errh->error("error param %s: must start with an int", tokens[0].c_str());
+		}
+
+		if (!StringArg().parse(tokens[1], tenant)) {
+			return errh->error("error param %s: must start with a String", tokens[1].c_str());
+		}
+
+		if (!IntArg().parse(tokens[2], tenant_type)) {
+			return errh->error("error param %s: must start with an int", tokens[2].c_str());
+		}
+
+		if (!IntArg().parse(tokens[3], priority)) {
+			return errh->error("error param %s: must start with an int", tokens[3].c_str());
+		}
+
+		if (!IntArg().parse(tokens[4], parent_priority)) {
+			return errh->error("error param %s: must start with an int", tokens[4].c_str());
+		}
+
+		if (!BoolArg().parse(tokens[5], aggregate)) {
+			return errh->error("error param %s: must start with an Ethernet address", tokens[5].c_str());
+		}
+
+		f->_eqoss->request_slice(dscp, tenant, tenant_type, priority, parent_priority, aggregate);
+
+		f->_eqoss->get_slices_lock()->release_write();
+		break;
+	}
 	}
 	return 0;
 }
@@ -2308,6 +2381,7 @@ void EmpowerLVAPManager::add_handlers() {
 	add_read_handler("interfaces", read_handler, (void *) H_INTERFACES);
 	add_write_handler("reconnect", write_handler, (void *) H_RECONNECT);
 	add_write_handler("ports", write_handler, (void *) H_PORTS);
+	add_write_handler("network_slice", write_handler, (void *) H_REQUEST_NETWORK_SLICE);
 	add_write_handler("debug", write_handler, (void *) H_DEBUG);
 }
 

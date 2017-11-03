@@ -13,6 +13,7 @@
 #include "empowerpacket.hh"
 #include "igmppacket.hh"
 #include "empowermulticasttable.hh"
+#include "empowerqosscheduler.hh"
 CLICK_DECLS
 
 /*
@@ -78,6 +79,16 @@ enum empower_lvap_flags {
 enum empower_bands_types {
     EMPOWER_BT_L20 = 0x0,
     EMPOWER_BT_HT20 = 0x1,
+};
+
+enum empower_tenant_types {
+    EMPOWER_TYPE_SHARED = 0x0,
+    EMPOWER_TYPE_UNIQUE = 0x1
+};
+
+enum empower_aggregation_flags {
+	EMPOWER_AMSDU_AGGREGATION = (1<<0),
+	EMPOWER_AMPDU_AGGREGATION = (1<<1),
 };
 
 typedef HashTable<uint16_t, uint32_t> CBytes;
@@ -271,6 +282,7 @@ public:
 	int handle_del_mcast_receiver(Packet *, uint32_t);
 	int handle_cqm_links_request(Packet *, uint32_t);
 	int handle_caps_request(Packet *, uint32_t);
+	int handle_add_network_slice(Packet *, uint32_t);
 
 	void send_hello();
 	void send_probe_request(EtherAddress, String, EtherAddress, int, empower_bands_types, empower_bands_types);
@@ -340,6 +352,12 @@ public:
 		return rc->tx_policies();
 	}
 
+	MinstrelDstInfo * get_dst_info(EtherAddress sta) {
+		EmpowerStationState *ess = _lvaps.get_pointer(sta);
+		MinstrelDstInfo * nfo = _rcs.at(ess->_iface_id)->neighbors()->findp(sta);
+		return nfo;
+	}
+
 private:
 
 	ReadWriteLock _ports_lock;
@@ -357,6 +375,7 @@ private:
 	class EmpowerRXStats *_ers;
 	class EmpowerCQM *_cqm;
 	class EmpowerMulticastTable * _mtbl;
+	class EmpowerQoSScheduler * _eqoss;
 
 	LVAP _lvaps;
 	Ports _ports;
