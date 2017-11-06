@@ -95,7 +95,7 @@ enum empower_packet_types {
     EMPOWER_PT_ADD_LVAP_RESPONSE = 0x51,        // ac -> wtp
     EMPOWER_PT_DEL_LVAP_RESPONSE = 0x52,         // ac -> wtp
 
-	EMPOWER_PT_ADD_NETWORK_SLICE = 0x56         // ac -> wtp
+	EMPOWER_PT_ADD_TRAFFIC_TYPE = 0x56         // ac -> wtp
 
 };
 
@@ -911,7 +911,7 @@ struct empower_del_mcast_receiver : public empower_header {
 	EtherAddress hwaddr()		{ return EtherAddress(_hwaddr); }
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
-struct empower_add_network_slice : public empower_header {
+struct empower_add_traffic_type : public empower_header {
 private:
     uint8_t 	_dscp;				/* Traffic DSCP (int) */
     char    	_ssid[];			/* SSID (String) */

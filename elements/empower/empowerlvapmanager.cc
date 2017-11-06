@@ -1168,8 +1168,6 @@ void EmpowerLVAPManager::send_caps() {
 int EmpowerLVAPManager::handle_caps_request(Packet *p, uint32_t offset) {
 
 	send_caps();
-	// TODO. Add default queues
-	//_eqoss->request_slice(_eqoss->default_dscp(), tenant, tenant_type, priority, parent_priority, aggregate);
 
 	return 0;
 
@@ -1874,16 +1872,16 @@ int EmpowerLVAPManager::handle_del_mcast_receiver(Packet *p, uint32_t offset) {
 	return 0;
 }
 
-int EmpowerLVAPManager::handle_add_network_slice(Packet *p, uint32_t offset) {
+int EmpowerLVAPManager::handle_add_traffic_type(Packet *p, uint32_t offset) {
 
-	struct empower_add_network_slice *add_network_slice;
-	int dscp = add_network_slice->dscp();
-	String ssid = add_network_slice->ssid();
-	empower_tenant_types tenant_type = (empower_tenant_types) add_network_slice->tenant_type();
-	int priority = add_network_slice->priority();
-	int parent_priority = add_network_slice->parent_priority();
-	bool amsdu_aggregation = add_network_slice->aggregation_flags(EMPOWER_AMSDU_AGGREGATION);
-	String ssid = add_network_slice->ssid();
+	struct empower_add_traffic_type *add_traffic_type;
+	int dscp = add_traffic_type->dscp();
+	String ssid = add_traffic_type->ssid();
+	empower_tenant_types tenant_type = (empower_tenant_types) add_traffic_type->tenant_type();
+	int priority = add_traffic_type->priority();
+	int parent_priority = add_traffic_type->parent_priority();
+	bool amsdu_aggregation = add_traffic_type->aggregation_flags(EMPOWER_AMSDU_AGGREGATION);
+	bool ampdu_aggregation = add_traffic_type->aggregation_flags(EMPOWER_AMPDU_AGGREGATION);
 
 	// message to the scheduler element to add a new queue
 	_eqoss->request_slice(dscp, ssid, tenant_type, priority, parent_priority, amsdu_aggregation);
@@ -1983,8 +1981,8 @@ void EmpowerLVAPManager::push(int, Packet *p) {
 		case EMPOWER_PT_CAPS_REQUEST:
 			handle_caps_request(p, offset);
 			break;
-		case EMPOWER_PT_ADD_NETWORK_SLICE:
-			handle_add_network_slice(p, offset);
+		case EMPOWER_PT_ADD_TRAFFIC_TYPE:
+			handle_add_traffic_type(p, offset);
 			break;
 		default:
 			click_chatter("%{element} :: %s :: Unknown packet type: %d",
@@ -2110,7 +2108,7 @@ enum {
 	H_DEL_LVAP,
 	H_RECONNECT,
 	H_INTERFACES,
-	H_REQUEST_NETWORK_SLICE
+	H_REQUEST_TRAFFIC_TYPE
 };
 
 String EmpowerLVAPManager::read_handler(Element *e, void *thunk) {
@@ -2317,7 +2315,7 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 		}
 		break;
 	}
-	case H_REQUEST_NETWORK_SLICE: {
+	case H_REQUEST_TRAFFIC_TYPE: {
 		Vector<String> tokens;
 		cp_spacevec(s, tokens);
 
@@ -2381,7 +2379,7 @@ void EmpowerLVAPManager::add_handlers() {
 	add_read_handler("interfaces", read_handler, (void *) H_INTERFACES);
 	add_write_handler("reconnect", write_handler, (void *) H_RECONNECT);
 	add_write_handler("ports", write_handler, (void *) H_PORTS);
-	add_write_handler("network_slice", write_handler, (void *) H_REQUEST_NETWORK_SLICE);
+	add_write_handler("traffic_type", write_handler, (void *) H_REQUEST_TRAFFIC_TYPE);
 	add_write_handler("debug", write_handler, (void *) H_DEBUG);
 }
 

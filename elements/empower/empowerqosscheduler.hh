@@ -95,12 +95,11 @@ public:
 
 	ReadWriteLock _buffer_queue_lock;
 
-	BufferQueue(empower_tenant_types tenant_type, uint8_t priority, uint8_t parent_priority, bool aggregate):
-		_tenant_type(tenant_type), _priority(priority), _parent_priority(parent_priority), _aggregate(aggregate){
-		_max_delay = 100;
+	BufferQueue(empower_tenant_types tenant_type, uint8_t priority, uint8_t parent_priority, bool aggregate, uint8_t max_delay):
+		_tenant_type(tenant_type), _priority(priority), _parent_priority(parent_priority), _aggregate(aggregate), _max_delay(max_delay){
 		_max_length = 7935;
 		_deficit = 0;
-		_quantum = 0;
+		_quantum = 1000;
 		_first_pkt = true;
 		_total_consumed_time = 0;
 		_dropped_packets = 0;
@@ -203,8 +202,8 @@ class EmpowerQoSScheduler : public SimpleQueue { public:
     void remove_slice_resources(int, String);
     int frame_transmission_time(EtherAddress, int);
     int map_dscp_to_delay(int);
-    void enqueue_unicast_frame(EtherAddress, BufferQueue *, Packet *);
-    Packet * empower_wifi_encap(Packet *);
+    void enqueue_unicast_frame(EtherAddress, BufferQueue *, Packet *, EtherAddress);
+    Packet * empower_wifi_encap(FrameInfo *);
     Packet *wifi_encap(Packet *, EtherAddress, EtherAddress, EtherAddress);
 
     ReadWriteLock * get_slices_lock() {

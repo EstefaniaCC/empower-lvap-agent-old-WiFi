@@ -54,7 +54,7 @@ int EmpowerQoSScheduler::initialize(ErrorHandler *) {
 	_sleepiness = 0;
 	_empty_slices = 0;
 	_system_quantum = 1470;
-	_default_dscp = 1;
+	_default_dscp = 0;
 	_notifier.initialize(Notifier::EMPTY_NOTIFIER, router());
 
 	return 0;
@@ -76,7 +76,9 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress dst = EtherAddress(eh->ether_dhost);
 
-	// TODO. Add BSSID info to the queues
+	// TODO. Add BSSID info to the queues (taken from the vaps)
+	// TODO. The default queue / other queues are created with the add vaps
+	// There is no default queue. If nothing matches or if it is bcast/mcast -> dscp 0
 	// unicast traffic
 	if (!dst.is_broadcast() && !dst.is_group()) {
 
@@ -96,7 +98,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 		BufferQueue * slice = _slices.get(slice_key);
 
 		// The dscp does not match any queue. The traffic is enqueued in the default queue
-		// TODO. The default queue does not aggregate
+		// The default queue does not aggregate
 		if (!slice){
 			click_chatter("%{element} :: %s :: The requested slice SSID %s DSCP %d does not exist",
 					this, __func__,
@@ -108,7 +110,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 			slice = _slices.get(slice_key);
 		}
 
-		enqueue_unicast_frame(dst, slice, p);
+		enqueue_unicast_frame(dst, slice, p, ess->_lvap_bssid);
 		return;
 	}
 
@@ -138,7 +140,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 					continue;
 				}
 				// Change the DA to the unicast one
-				// TODO. Not to change the address if is broadcast
+				// TODO. Not to change the address if the dst is broadcast
 				WritablePacket *unicast_pkt = pq->uniqueify();
 				if (!unicast_pkt) {
 					slice->_dropped_packets++;
@@ -151,13 +153,101 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 				}
 				click_ether *ethh = unicast_pkt->ether_header();
 				memcpy(ethh->ether_dhost, &it.value()._sta, 6);
-				enqueue_unicast_frame(dst, slice, unicast_pkt);
+				enqueue_unicast_frame(dst,slice, (Packet *) unicast_pkt, it.value()._lvap_bssid);
 			}
 		} else {
 			// EMPOWER_TYPE_SHARED
+			// TODO. If the tenant is shared... the frame should be duplicated as many as VAPs (as many as bssids)
+			// if the the policy is legacy.
+			// if it is dms... the DA does not change, but the bssid is set to each lvap (so.. as many as lvaps)
 			BufferQueueInfo slice_key (_default_dscp,it_slices.key()._tenant);
 			BufferQueue * slice = _slices.get(slice_key);
 			FrameInfo * new_frame = new FrameInfo();
+
+			for (int i = 0; i < _el->num_ifaces(); i++) {
+				TxPolicyInfo * tx_policy = _el->get_tx_policies(i)->lookup(dst);
+
+				if (tx_policy->_tx_mcast == TX_MCAST_DMS) {
+					// dms mcast policy, duplicate the frame for each station in
+					// each bssid and use unicast destination addresses. note that
+					// a given station cannot be in more than one bssid, so just
+					// track if the frame has already been delivered to a given
+					// station.
+
+					Vector<EtherAddress> sent;
+					for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
+						// TODO. This should be checked? What about the ARP or similar traffic?
+						if (it.value()._ssid != it_slices.key()._tenant) {
+							continue;
+						}
+						EtherAddress sta = it.value()._sta;
+						if (it.value()._iface_id != i) {
+							continue;
+						}
+						if (!it.value()._set_mask) {
+							continue;
+						}
+						if (!it.value()._authentication_status) {
+							continue;
+						}
+						if (!it.value()._association_status) {
+							continue;
+						}
+						if (find(sent.begin(), sent.end(), sta) != sent.end()) {
+							continue;
+						}
+						sent.push_back(sta);
+						Packet *q = p->clone();
+						if (!q) {
+							continue;
+						}
+						// TODO. Is this sta or dst?
+						enqueue_unicast_frame(sta, slice, q, it.value()._lvap_bssid);
+					}
+
+				} else if (tx_policy->_tx_mcast == TX_MCAST_UR) {
+
+					// TODO: implement
+
+				} else {
+
+					// legacy mcast policy, just send the frame as it is, minstrel will
+					// pick the rate from the transmission policies table
+
+					Vector<EtherAddress> sent;
+
+					for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
+						// TODO. This should be checked? What about the ARP or similar traffic?
+						if (it.value()._ssid != it_slices.key()._tenant) {
+							continue;
+						}
+
+						EtherAddress bssid = it.value()._lvap_bssid;
+						if (it.value()._iface_id != i) {
+							continue;
+						}
+						if (!it.value()._set_mask) {
+							continue;
+						}
+						if (!it.value()._authentication_status) {
+							continue;
+						}
+						if (!it.value()._association_status) {
+							continue;
+						}
+						if (find(sent.begin(), sent.end(), bssid) != sent.end()) {
+							continue;
+						}
+						sent.push_back(bssid);
+						Packet *q = p->clone();
+						if (!q) {
+							continue;
+						}
+						enqueue_unicast_frame(dst, slice, q, bssid);
+					}
+
+				}
+
 
 			new_frame->_frame = q->uniqueify();
 			if (!new_frame->_frame) {
@@ -173,12 +263,13 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 
 			slice->_frames.push_back(new_frame);
 			new_frame->_complete = true;
+			}
 		}
 	}
 }
 
 void
-EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * slice, Packet * p)
+EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * slice, Packet * p, EtherAddress bssid)
 {
 	if (_current_frame_clients.find(dst) == _current_frame_clients.end()) {
 		FrameInfo * new_frame = new FrameInfo();
@@ -190,6 +281,7 @@ EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * slice
 		}
 		new_frame->_frame_length = new_frame->_frame->length();
 		new_frame->_dst = dst;
+		new_frame->_bssid = bssid;
 		if (slice->_frames.size() == 0)
 			_empty_slices--;
 		slice->_frames.push_back(new_frame);
@@ -216,6 +308,7 @@ EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * slice
 		}
 		new_frame->_frame_length = new_frame->_frame->length();
 		new_frame->_dst = dst;
+		new_frame->_bssid = bssid;
 		_current_frame_clients.set(dst, new_frame);
 		slice->_frames.push_back(new_frame);
 	} else {
@@ -245,7 +338,7 @@ EmpowerQoSScheduler::pull(int)
 	bool delivered_packet = false;
 
 	if (_slices.size() == _empty_slices) {
-		// TODO. Check the behaviour of the notifier
+		// TODO. Check the behavior of the notifier
 		_notifier.sleep();
 		click_chatter("%{element} :: %s :: ----- All the buffer queues are empty: %d ----- ",
 										 this,
@@ -254,9 +347,7 @@ EmpowerQoSScheduler::pull(int)
 		return 0;
 	}
 
-	// TODO. Add the wifiencap....
 	// TODO. Add ordering in a slice by...? expiration time?
-
 	while (!delivered_packet && _slices.size() != _empty_slices) {
 		BufferQueueInfo queue_info = _rr_order.front();
 		BufferQueue * slice =  _slices.get(queue_info);
@@ -274,7 +365,7 @@ EmpowerQoSScheduler::pull(int)
 				// If it is the first time of this queue and it is not empty, a new deficit must be assigned
 				if (slice->_first_pkt) {
 					// TODO. compute quantum
-					slice->_quantum = 1000; // TODO. CHANGE OF COURSE
+					//slice->_quantum = 1000; // TODO. CHANGE OF COURSE
 					slice->_deficit += slice->_quantum;
 					slice->_first_pkt = false;
 				}
@@ -304,10 +395,9 @@ EmpowerQoSScheduler::pull(int)
 						slice->_deficit = 0;
 						_empty_slices ++;
 					}
-					Packet *next_packet = (Packet *) next_frame->_frame;
-					slice->remove_frame_from_queue(next_frame);
 
-					return empower_wifi_encap(next_packet);
+					slice->remove_frame_from_queue(next_frame);
+					return empower_wifi_encap(next_frame);
 				}
 			} else {
 				slice->_dropped_packets++;
@@ -413,19 +503,19 @@ EmpowerQoSScheduler::list_slices()
 	return sa.take_string();
 }
 
-// TODO. Add the code to "emulate" the signaling from the controller when requesting a new slice
 void
-EmpowerQoSScheduler::request_slice(int dscp, String tenant, empower_tenant_types tenant_type, int priority, int parent_priority, bool aggregate)
+EmpowerQoSScheduler::request_slice(int dscp, String tenant, empower_tenant_types tenant_type, int priority,
+		int parent_priority, bool amsdu_aggregation)
 {
 	BufferQueueInfo queue_info(dscp, tenant);
 
 	if (_slices.find(queue_info) == _slices.end()) {
 		// TODO. Decide how to set the priority and parent_priority
-		BufferQueue * slice = new BufferQueue (tenant_type, priority, parent_priority, aggregate);
+		int max_delay = map_dscp_to_delay(dscp);
+		BufferQueue * slice = new BufferQueue (tenant_type, priority, parent_priority, amsdu_aggregation, max_delay);
 		_slices.set(queue_info, slice);
 
 		_rr_order.push_back(queue_info);
-		// TODO. Delete slice from rr and _slices
 		_empty_slices++;
 	}
 }
@@ -489,11 +579,13 @@ EmpowerQoSScheduler::release_slice(int dscp, String tenant)
 }
 
 Packet *
-EmpowerQoSScheduler::empower_wifi_encap(Packet * p)
+EmpowerQoSScheduler::empower_wifi_encap(FrameInfo * next_frame)
 {
+	Packet *p = (Packet *) next_frame->_frame;
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress src = EtherAddress(eh->ether_shost);
-	EtherAddress dst = EtherAddress(eh->ether_dhost);
+//	EtherAddress dst = EtherAddress(eh->ether_dhost);
+	EtherAddress dst = next_frame->_dst;
 
 	// unicast traffic
 	if (!dst.is_broadcast() && !dst.is_group()) {
@@ -523,101 +615,19 @@ EmpowerQoSScheduler::empower_wifi_encap(Packet * p)
 			p->kill();
 			return 0;
 		}
-		txp->update_tx(p->length());
 		Packet * p_out = wifi_encap(p, dst, src, ess->_lvap_bssid);
+		txp->update_tx(p->length());
 		SET_PAINT_ANNO(p_out, ess->_iface_id);
 		return p_out;
 	}
 
 	// broadcast and multicast traffic, we need to transmit one frame for each unique
 	// bssid. this is due to the fact that we can have the same bssid for multiple LVAPs.
-	for (int i = 0; i < _el->num_ifaces(); i++) {
-
-		TxPolicyInfo * tx_policy = _el->get_tx_policies(i)->lookup(dst);
-
-		if (tx_policy->_tx_mcast == TX_MCAST_DMS) {
-
-			// dms mcast policy, duplicate the frame for each station in
-			// each bssid and use unicast destination addresses. note that
-			// a given station cannot be in more than one bssid, so just
-			// track if the frame has already been delivered to a given
-			// station.
-
-			Vector<EtherAddress> sent;
-
-			for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
-				EtherAddress sta = it.value()._sta;
-				if (it.value()._iface_id != i) {
-					continue;
-				}
-				if (!it.value()._set_mask) {
-					continue;
-				}
-				if (!it.value()._authentication_status) {
-					continue;
-				}
-				if (!it.value()._association_status) {
-					continue;
-				}
-				if (find(sent.begin(), sent.end(), sta) != sent.end()) {
-					continue;
-				}
-				sent.push_back(sta);
-				Packet *q = p->clone();
-				if (!q) {
-					continue;
-				}
-				Packet * p_out = wifi_encap(q, sta, src, it.value()._lvap_bssid);
-				tx_policy->update_tx(p->length());
-				SET_PAINT_ANNO(p_out, i);
-				return p_out;
-			}
-
-		} else if (tx_policy->_tx_mcast == TX_MCAST_UR) {
-
-			// TODO: implement
-
-		} else {
-
-			// legacy mcast policy, just send the frame as it is, minstrel will
-			// pick the rate from the transmission policies table
-
-			Vector<EtherAddress> sent;
-
-			for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
-				EtherAddress bssid = it.value()._lvap_bssid;
-				if (it.value()._iface_id != i) {
-					continue;
-				}
-				if (!it.value()._set_mask) {
-					continue;
-				}
-				if (!it.value()._authentication_status) {
-					continue;
-				}
-				if (!it.value()._association_status) {
-					continue;
-				}
-				if (find(sent.begin(), sent.end(), bssid) != sent.end()) {
-					continue;
-				}
-				sent.push_back(bssid);
-				Packet *q = p->clone();
-				if (!q) {
-					continue;
-				}
-				Packet * p_out = wifi_encap(q, dst, src, bssid);
-				tx_policy->update_tx(p->length());
-				SET_PAINT_ANNO(p_out, i);
-				return p_out;
-			}
-
-		}
-
-	}
-
-	p->kill();
-	return;
+	Packet * p_out = wifi_encap(p, dst, src, next_frame->_bssid);
+	TxPolicyInfo * tx_policy =_el->get_txp(dst);
+	tx_policy->update_tx(p->length());
+	SET_PAINT_ANNO(p_out, i);
+	return p_out;
 }
 
 Packet *
