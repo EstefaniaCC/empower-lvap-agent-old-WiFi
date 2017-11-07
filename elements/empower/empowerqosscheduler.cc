@@ -52,7 +52,7 @@ int EmpowerQoSScheduler::initialize(ErrorHandler *) {
 	_drops = 0;
 	_bdrops = 0;
 	_sleepiness = 0;
-	_empty_slices = 0;
+	_empty_traffic_rules = 0;
 	_system_quantum = 1470;
 	_default_dscp = 0;
 	_notifier.initialize(Notifier::EMPTY_NOTIFIER, router());
@@ -94,23 +94,23 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 		}
 
 		String ssid = ess->_ssid;
-		BufferQueueInfo slice_key (dscp, ssid);
-		BufferQueue * slice = _slices.get(slice_key);
+		BufferQueueInfo tr_key (dscp, ssid);
+			BufferQueue * tr_queue = get_traffic_rule(dscp, ssid);
 
 		// The dscp does not match any queue. The traffic is enqueued in the default queue
 		// The default queue does not aggregate
-		if (!slice){
-			click_chatter("%{element} :: %s :: The requested slice SSID %s DSCP %d does not exist",
+		if (!tr_queue){
+			click_chatter("%{element} :: %s :: The requested traffic rule SSID %s DSCP %d does not exist",
 					this, __func__,
 					ssid.c_str(),
 					dscp);
 			// This dscp does not exist. The default queue for this tenant is used instead
-			BufferQueueInfo slice_key (_default_dscp, ssid);
 			dscp = _default_dscp;
-			slice = _slices.get(slice_key);
+			BufferQueueInfo tr_key (dscp, ssid);
+			tr_queue = get_traffic_rule(dscp, ssid);
 		}
 
-		enqueue_unicast_frame(dst, slice, p, ess->_lvap_bssid);
+		enqueue_unicast_frame(dst, tr_queue, p, ess->_lvap_bssid);
 		return;
 	}
 
@@ -119,21 +119,21 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 	// since the default queue does not aggregate by the moment.
 	// If the tenant is shared, the frame is just enqueued holding the original DA.
 
-	for (TrafficRulesQueuesIter it_slices = _slices.begin(); it_slices.live(); it_slices++) {
-		if (it_slices.key()._dscp != _default_dscp) {
+	for (TrafficRulesQueuesIter it_tr_queues = _traffic_rules.begin(); it_tr_queues.live(); it_tr_queues++) {
+		if (it_tr_queues.key()._dscp != _default_dscp) {
 			continue;
 		}
 		Packet *q = p->clone();
 		if (!q) {
 			continue;
 		}
-		if (it_slices.value()->_tenant_type == EMPOWER_TYPE_UNIQUE) {
+		if (it_tr_queues.value()->_tenant_type == EMPOWER_TYPE_UNIQUE) {
 			for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
-				if (it.value()._ssid != it_slices.key()._tenant) {
+				if (it.value()._ssid != it_tr_queues.key()._tenant) {
 					continue;
 				}
-				BufferQueueInfo slice_key (_default_dscp, it.value()._ssid);
-				BufferQueue * slice = _slices.get(slice_key);
+				BufferQueueInfo tr_key (_default_dscp, it.value()._ssid);
+				BufferQueue * tr_queue = get_traffic_rule(_default_dscp, it.value()._ssid);
 				// Clone the packet for each lvap in this tenant
 				Packet *pq = q->clone();
 				if (!pq) {
@@ -143,9 +143,9 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 				// TODO. Not to change the address if the dst is broadcast
 				WritablePacket *unicast_pkt = pq->uniqueify();
 				if (!unicast_pkt) {
-					slice->_dropped_packets++;
-					slice->_dropped_msdus ++;
-					slice->_dropped_bytes += unicast_pkt->length();
+					tr_queue->_dropped_packets++;
+					tr_queue->_dropped_msdus ++;
+					tr_queue->_dropped_bytes += unicast_pkt->length();
 					_drops++;
 					_bdrops += unicast_pkt->length();
 					unicast_pkt->kill();
@@ -153,15 +153,15 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 				}
 				click_ether *ethh = unicast_pkt->ether_header();
 				memcpy(ethh->ether_dhost, &it.value()._sta, 6);
-				enqueue_unicast_frame(dst,slice, (Packet *) unicast_pkt, it.value()._lvap_bssid);
+				enqueue_unicast_frame(dst,tr_queue, (Packet *) unicast_pkt, it.value()._lvap_bssid);
 			}
 		} else {
 			// EMPOWER_TYPE_SHARED
 			// TODO. If the tenant is shared... the frame should be duplicated as many as VAPs (as many as bssids)
 			// if the the policy is legacy.
 			// if it is dms... the DA does not change, but the bssid is set to each lvap (so.. as many as lvaps)
-			BufferQueueInfo slice_key (_default_dscp,it_slices.key()._tenant);
-			BufferQueue * slice = _slices.get(slice_key);
+			BufferQueueInfo tr_key (_default_dscp,it_tr_queues.key()._tenant);
+			BufferQueue * tr_queue = get_traffic_rule(_default_dscp,it_tr_queues.key()._tenant);
 			FrameInfo * new_frame = new FrameInfo();
 
 			for (int i = 0; i < _el->num_ifaces(); i++) {
@@ -177,7 +177,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 					Vector<EtherAddress> sent;
 					for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
 						// TODO. This should be checked? What about the ARP or similar traffic?
-						if (it.value()._ssid != it_slices.key()._tenant) {
+						if (it.value()._ssid != it_tr_queues.key()._tenant) {
 							continue;
 						}
 						EtherAddress sta = it.value()._sta;
@@ -202,7 +202,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 							continue;
 						}
 						// TODO. Is this sta or dst?
-						enqueue_unicast_frame(sta, slice, q, it.value()._lvap_bssid);
+						enqueue_unicast_frame(sta, tr_queue, q, it.value()._lvap_bssid);
 					}
 
 				} else if (tx_policy->_tx_mcast == TX_MCAST_UR) {
@@ -218,7 +218,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 
 					for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
 						// TODO. This should be checked? What about the ARP or similar traffic?
-						if (it.value()._ssid != it_slices.key()._tenant) {
+						if (it.value()._ssid != it_tr_queues.key()._tenant) {
 							continue;
 						}
 
@@ -243,80 +243,69 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 						if (!q) {
 							continue;
 						}
-						enqueue_unicast_frame(dst, slice, q, bssid);
+						enqueue_unicast_frame(dst, tr_queue, q, bssid);
 					}
 
 				}
-
-
-			new_frame->_frame = q->uniqueify();
-			if (!new_frame->_frame) {
-				new_frame->_frame->kill();
-				slice->_dropped_packets++;
-				return;
-			}
-			new_frame->_frame_length = new_frame->_frame->length();
-			new_frame->_dst = dst;
-
-			if (slice->_frames.size() == 0)
-				_empty_slices--;
-
-			slice->_frames.push_back(new_frame);
-			new_frame->_complete = true;
 			}
 		}
 	}
 }
 
 void
-EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * slice, Packet * p, EtherAddress bssid)
-{
+EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queue, Packet * p, EtherAddress bssid) {
 	if (_current_frame_clients.find(dst) == _current_frame_clients.end()) {
 		FrameInfo * new_frame = new FrameInfo();
 		new_frame->_frame = p->uniqueify();
 		if (!new_frame->_frame) {
 			new_frame->_frame->kill();
-			slice->_dropped_packets++;
+			tr_queue->_dropped_packets++;
 			return;
 		}
 		new_frame->_frame_length = new_frame->_frame->length();
 		new_frame->_dst = dst;
 		new_frame->_bssid = bssid;
-		if (slice->_frames.size() == 0)
-			_empty_slices--;
-		slice->_frames.push_back(new_frame);
+		if (tr_queue->_frames.size() == 0)
+			_empty_traffic_rules--;
 
-		if (slice->_aggregate) {
+		tr_queue->_buffer_queue_lock.acquire_write();
+
+		if (tr_queue->_amsdu_aggregation) {
 			_current_frame_clients.set(dst, new_frame);
 		} else {
 			new_frame->_complete = true;
 		}
+		tr_queue->_frames.push_back(new_frame);
+		tr_queue->_buffer_queue_lock.acquire_write();
+
 		return;
 	}
 
 	FrameInfo * current_frame = _current_frame_clients.get(dst);
 
-	if (((current_frame->_frame_length + p->length()) > slice->_max_length) || current_frame->_complete) {
+	if (((current_frame->_frame_length + p->length()) > tr_queue->_max_length) || current_frame->_complete) {
 		current_frame->_complete = true;
 		FrameInfo * new_frame = new FrameInfo();
 
 		new_frame->_frame = p->uniqueify();
 		if (!new_frame->_frame) {
 			new_frame->_frame->kill();
-			slice->_dropped_packets++;
+			tr_queue->_dropped_packets++;
 			return;
 		}
 		new_frame->_frame_length = new_frame->_frame->length();
 		new_frame->_dst = dst;
 		new_frame->_bssid = bssid;
 		_current_frame_clients.set(dst, new_frame);
-		slice->_frames.push_back(new_frame);
+		tr_queue->_buffer_queue_lock.acquire_write();
+		tr_queue->_frames.push_back(new_frame);
+		tr_queue->_buffer_queue_lock.release_write();
 	} else {
 		WritablePacket *q = current_frame->_frame->put(p->length());
 		if (!q) {
 			_current_frame_clients.erase(_current_frame_clients.find(dst));
-			slice->discard_frame(current_frame);
-			slice->_dropped_packets++;
+			tr_queue->discard_frame(current_frame);
+			tr_queue->_dropped_packets++;
 			return;
 		}
 		current_frame->_frame = q;
@@ -327,97 +316,96 @@ EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * slice
 		current_frame->_last_frame_time = Timestamp::now();
 	}
 	// Check if it can wait for the next frame to complete this one
-	if ((frame_transmission_time(dst, current_frame->_frame_length) + current_frame->_average_time_diff) > slice->_max_delay) {
+	float transm_time = frame_transmission_time(dst, current_frame->_frame_length);
+	if ((transm_time + current_frame->_average_time_diff) > tr_queue->_max_delay) {
 		current_frame->_complete = true;
 	}
 }
 
 Packet *
-EmpowerQoSScheduler::pull(int)
-{
+EmpowerQoSScheduler::pull(int) {
 	bool delivered_packet = false;
 
-	if (_slices.size() == _empty_slices) {
+	if (_traffic_rules.size() == _empty_traffic_rules) {
 		// TODO. Check the behavior of the notifier
 		_notifier.sleep();
 		click_chatter("%{element} :: %s :: ----- All the buffer queues are empty: %d ----- ",
 										 this,
 										 __func__,
-										 _empty_slices);
+										 _empty_traffic_rules);
 		return 0;
 	}
 
 	// TODO. Add ordering in a slice by...? expiration time?
-	while (!delivered_packet && _slices.size() != _empty_slices) {
+	while (!delivered_packet && _traffic_rules.size() != _empty_traffic_rules) {
 		BufferQueueInfo queue_info = _rr_order.front();
-		BufferQueue * slice =  _slices.get(queue_info);
+		BufferQueue * tr_queue =  _traffic_rules.get(queue_info);
 
 		//queue->_mutex.acquire_write();
-		while (slice->_frames.size()) {
+		while (tr_queue->_frames.size()) {
 			// TODO. By the moment is done taking the first one. This must be improved
 			// TODO. What happens if I go to a queue and the packet is not still completed? Shall I wait? Shall I take the next one?
-			FrameInfo *next_frame = slice->pull();
+			FrameInfo *next_frame = tr_queue->pull();
 			_current_frame_clients.erase(_current_frame_clients.find(next_frame->_dst));
 			// If the transmission time + the time that the frame has been in the queue exceeds the delay deadline
 			// this frame is discarded
-			int transm_time = frame_transmission_time(next_frame->_dst, next_frame->_frame_length);
-			if (!slice->check_delay_deadline(next_frame, transm_time)) {
+			float transm_time = frame_transmission_time(next_frame->_dst, next_frame->_frame_length);
+			if (!tr_queue->check_delay_deadline(next_frame, transm_time)) {
 				// If it is the first time of this queue and it is not empty, a new deficit must be assigned
-				if (slice->_first_pkt) {
+				if (tr_queue->_first_pkt) {
 					// TODO. compute quantum
 					//slice->_quantum = 1000; // TODO. CHANGE OF COURSE
-					slice->_deficit += slice->_quantum;
-					slice->_first_pkt = false;
+					tr_queue->_deficit += tr_queue->_quantum;
+					tr_queue->_first_pkt = false;
 				}
-				if (slice->_deficit >= transm_time) {
+				if (tr_queue->_deficit >= transm_time) {
 					delivered_packet = true;
-					slice->_deficit -= transm_time;
-					slice->_total_consumed_time += transm_time;
-					slice->_transmitted_packets ++;
-					slice->_transmitted_msdus += next_frame->_msdus;
-					slice->_transmitted_bytes += next_frame->_frame_length;
+					tr_queue->_deficit -= transm_time;
+					tr_queue->_total_consumed_time += transm_time;
+					tr_queue->_transmitted_packets ++;
+					tr_queue->_transmitted_msdus += next_frame->_msdus;
+					tr_queue->_transmitted_bytes += next_frame->_frame_length;
 
-					click_chatter("%{element} :: %s :: ----- PULL in slice (%d, %s) for station  %s. Remaining deficit %d. "
+					click_chatter("%{element} :: %s :: ----- PULL in traffic rule queue (%d, %s) for station  %s. Remaining deficit %d. "
 							"Remaining packets %d (Consumption: time %d packets %d msdus %d bytes %d ---- ",
 																			 this,
 																			 __func__,
 																			 queue_info._dscp,
 																			 queue_info._tenant.c_str(),
 																			 next_frame->_dst.unparse().c_str(),
-																			 slice->_deficit,
-																			 (slice->_frames.size() - 1),
-																			 slice->_total_consumed_time,
-																			 slice->_transmitted_packets,
-																			 slice->_transmitted_msdus,
-																			 slice->_transmitted_bytes);
+																			 tr_queue->_deficit,
+																			 (tr_queue->_frames.size() - 1),
+																			 tr_queue->_total_consumed_time,
+																			 tr_queue->_transmitted_packets,
+																			 tr_queue->_transmitted_msdus,
+																			 tr_queue->_transmitted_bytes);
 
-					if (slice->_frames.size() == 0) {
-						slice->_deficit = 0;
-						_empty_slices ++;
+					if (tr_queue->_frames.size() == 0) {
+						tr_queue->_deficit = 0;
+						_empty_traffic_rules ++;
 					}
 
-					slice->remove_frame_from_queue(next_frame);
+					tr_queue->remove_frame_from_queue(next_frame);
 					return empower_wifi_encap(next_frame);
 				}
 			} else {
-				slice->_dropped_packets++;
-				slice->_dropped_msdus += next_frame->_msdus;
-				slice->_dropped_bytes += next_frame->_frame_length;
+				tr_queue->_dropped_packets++;
+				tr_queue->_dropped_msdus += next_frame->_msdus;
+				tr_queue->_dropped_bytes += next_frame->_frame_length;
 				_drops++;
 				_bdrops += next_frame->_frame_length;
-				slice->discard_frame(next_frame);
+				tr_queue->discard_frame(next_frame);
 			}
 		}
-		slice->_first_pkt = true;
+		tr_queue->_first_pkt = true;
 		_rr_order.push_back(queue_info);
 		_rr_order.pop_front();
 	}
 	return 0;
 }
 
-int
-EmpowerQoSScheduler::frame_transmission_time(EtherAddress next_delireved_client, int pkt_length)
-{
+float
+EmpowerQoSScheduler::frame_transmission_time(EtherAddress next_delireved_client, int pkt_length) {
 	MinstrelDstInfo * nfo = _el->get_dst_info(next_delireved_client);
 	EmpowerStationState *ess = _el->lvaps()->get_pointer(next_delireved_client);
 	TxPolicyInfo * tx_policy = _el->get_tx_policies(ess->_iface_id)->lookup(next_delireved_client);
@@ -449,14 +437,13 @@ EmpowerQoSScheduler::frame_transmission_time(EtherAddress next_delireved_client,
 		usecs = calc_usecs_wifi_packet(pkt_length, rate, nb_retransm);
 	}
 
-	return (int)usecs;
+	return (float) usecs;
 }
 
 String
-EmpowerQoSScheduler::list_slices()
-{
+EmpowerQoSScheduler::list_traffic_rules() {
 	StringAccum sa;
-	for (TrafficRulesQueuesIter it =_slices.begin(); it.live(); it++) {
+	for (TrafficRulesQueuesIter it =_traffic_rules.begin(); it.live(); it++) {
 		sa << "Tenant ";
 		sa << it.key()._tenant;
 		if (it.value()->_tenant_type == EMPOWER_TYPE_SHARED) {
@@ -470,10 +457,15 @@ EmpowerQoSScheduler::list_slices()
 		sa << it.value()->_parent_priority;
 		sa << " priority ";
 		sa << it.value()->_priority;
-		if (it.value()->_aggregate) {
-			sa << " AGGR.";
+		if (it.value()->_amsdu_aggregation) {
+			sa << " A-MSDU AGGR.";
 		} else {
-			sa << " NON AGGR.";
+			sa << " NON A-MSDU AGGR.";
+		}
+		if (it.value()->_ampdu_aggregation) {
+			sa << " A-MPDU AGGR.";
+		} else {
+			sa << " NON  A-MPDU AGGR.";
 		}
 		sa << " max. delay ";
 		sa << it.value()->_max_delay;
@@ -504,83 +496,88 @@ EmpowerQoSScheduler::list_slices()
 }
 
 void
-EmpowerQoSScheduler::request_slice(int dscp, String tenant, empower_tenant_types tenant_type, int priority,
-		int parent_priority, bool amsdu_aggregation)
-{
+EmpowerQoSScheduler::request_traffic_rule(int dscp, String tenant, empower_tenant_types tenant_type, int priority,
+		int parent_priority, bool amsdu_aggregation, bool ampdu_aggregation) {
+
 	BufferQueueInfo queue_info(dscp, tenant);
 
-	if (_slices.find(queue_info) == _slices.end()) {
+	_traffic_rules_lock.acquire_write();
+
+	if (_traffic_rules.find(queue_info) == _traffic_rules.end()) {
 		// TODO. Decide how to set the priority and parent_priority
 		int max_delay = map_dscp_to_delay(dscp);
-		BufferQueue * slice = new BufferQueue (tenant_type, priority, parent_priority, amsdu_aggregation, max_delay);
-		_slices.set(queue_info, slice);
+		BufferQueue * tr_queue = new BufferQueue (tenant_type, priority, parent_priority, max_delay, amsdu_aggregation, ampdu_aggregation);
+		_traffic_rules.set(queue_info, tr_queue);
 
 		_rr_order.push_back(queue_info);
-		_empty_slices++;
+		_empty_traffic_rules++;
 	}
+
+	_traffic_rules_lock.release_write();
 }
 
 void
-EmpowerQoSScheduler::remove_slice_resources(int dscp, String tenant)
-{
+EmpowerQoSScheduler::remove_traffic_rule_resources(int dscp, String tenant) {
 	int tenant_air_time_portion = 0;
 
 
 }
 
 void
-EmpowerQoSScheduler::release_slice(int dscp, String tenant)
-{
-	BufferQueueInfo slice_key (dscp, tenant);
-	BufferQueue * slice = _slices.get(slice_key);
+EmpowerQoSScheduler::release_traffic_rule(int dscp, String tenant) {
+	BufferQueueInfo tr_key (dscp, tenant);
+	BufferQueue * tr_queue = get_traffic_rule(dscp, tenant);
 
-	if (!slice){
-		click_chatter("%{element} :: %s :: The requested slice SSID %s DSCP %d does not exist",
+	if (!tr_queue){
+		click_chatter("%{element} :: %s :: The requested traffic rule queue SSID %s DSCP %d does not exist",
 				this, __func__,
 				tenant.c_str(),
 				dscp);
 		return;
 	}
 
+	_traffic_rules_lock.acquire_write();
+
 	// Calculates the sum of the priorities of the remaining queues from the same tenant
 	int tenant_priorities = 0;
-	for (TrafficRulesQueuesIter it_slices = _slices.begin(); it_slices.live(); it_slices++) {
-		if (it_slices.key()._tenant == tenant && it_slices.key()._dscp != dscp) {
-			tenant_priorities += it_slices.value()->_priority;
+	for (TrafficRulesQueuesIter it_tr_queues = _traffic_rules.begin(); it_tr_queues.live(); it_tr_queues++) {
+		if (it_tr_queues.key()._tenant == tenant && it_tr_queues.key()._dscp != dscp) {
+			tenant_priorities += it_tr_queues.value()->_priority;
 		}
 	}
 
 	// The bandwidth is reassigned to the other queues from the same tenant
-	for (TrafficRulesQueuesIter it_slices = _slices.begin(); it_slices.live(); it_slices++) {
-		if (it_slices.key()._tenant == tenant && it_slices.key()._dscp != dscp) {
-			it_slices.value()->_priority = (slice->_priority * it_slices.value()->_priority) / tenant_priorities;
+	for (TrafficRulesQueuesIter it_tr_queues = _traffic_rules.begin(); it_tr_queues.live(); it_tr_queues++) {
+		if (it_tr_queues.key()._tenant == tenant && it_tr_queues.key()._dscp != dscp) {
+			it_tr_queues.value()->_priority = (tr_queue->_priority * it_tr_queues.value()->_priority) / tenant_priorities;
 		}
 	}
 
-	// If the queue was empty, the empty slices counter should be decreased
-	if (slice->_frames.size() == 0)
-		_empty_slices--;
+	// If the queue was empty, the empty queues counter should be decreased
+	if (tr_queue->_frames.size() == 0)
+		_empty_traffic_rules--;
 
 	// The frames in the inner queues are also deleted
-	for (Vector<FrameInfo*>::iterator it = slice->_frames.begin(); it != slice->_frames.end(); it++) {
+	for (Vector<FrameInfo*>::iterator it = tr_queue->_frames.begin(); it != tr_queue->_frames.end(); it++) {
 		(*it)->_frame->kill();
 		delete (*it);
 	}
-	slice->_frames.clear();
+	tr_queue->_frames.clear();
 
 	// The queue is erased from the scheduler and the RR order
 	for (Vector <BufferQueueInfo>::iterator it = _rr_order.begin(); it != _rr_order.end(); )
-	   if((*it) == slice_key) {
+	   if((*it) == tr_key) {
 	      it = _rr_order.erase(it);
 	      break;
 	   }
-	delete slice;
-	_slices.erase(_slices.find(slice_key));
+	delete tr_queue;
+	_traffic_rules.erase(_traffic_rules.find(tr_key));
+
+	_traffic_rules_lock.release_write();
 }
 
 Packet *
-EmpowerQoSScheduler::empower_wifi_encap(FrameInfo * next_frame)
-{
+EmpowerQoSScheduler::empower_wifi_encap(FrameInfo * next_frame) {
 	Packet *p = (Packet *) next_frame->_frame;
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress src = EtherAddress(eh->ether_shost);
@@ -676,8 +673,7 @@ EmpowerQoSScheduler::wifi_encap(Packet *q, EtherAddress dst, EtherAddress src, E
 }
 
 int
-EmpowerQoSScheduler::map_dscp_to_delay(int dscp)
-{
+EmpowerQoSScheduler::map_dscp_to_delay(int dscp) {
 	int delay = 5000;
 
 	switch (dscp) {

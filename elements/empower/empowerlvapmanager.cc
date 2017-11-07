@@ -1165,6 +1165,42 @@ void EmpowerLVAPManager::send_caps() {
 
 }
 
+void EmpowerLVAPManager:: send_status_traffic_rule(uint8_t dscp, String tenant) {
+
+
+	BufferQueue * tr_queue = _eqoss->get_traffic_rule(dscp, tenant);
+
+	int len = sizeof(empower_status_traffic_rule) + tenant.length();
+
+	WritablePacket *p = Packet::make(len);
+
+	if (!p) {
+		click_chatter("%{element} :: %s :: cannot make packet!",
+					  this,
+					  __func__);
+		return;
+	}
+
+	memset(p->data(), 0, p->length());
+
+	empower_status_traffic_rule *status = (struct empower_status_traffic_rule *) (p->data());
+	status->set_version(_empower_version);
+	status->set_length(len);
+	status->set_type(EMPOWER_PT_STATUS_TRAFFIC_RULE);
+	status->set_seq(get_next_seq());
+	status->set_wtp(_wtp);
+	status->set_dscp(dscp);
+	status->set_tenant_type(tr_queue->_tenant_type);
+	status->set_parent_priority(tr_queue->_parent_priority);
+	status->set_priority(tr_queue->_priority);
+	if (tr_queue->_amsdu_aggregation)
+		status->set_aggregation_flags(EMPOWER_AMSDU_AGGREGATION);
+	if (tr_queue->_ampdu_aggregation)
+		status->set_aggregation_flags(EMPOWER_AMPDU_AGGREGATION);
+
+	send_message(p);
+}
+
 int EmpowerLVAPManager::handle_caps_request(Packet *p, uint32_t offset) {
 
 	send_caps();
@@ -1872,19 +1908,27 @@ int EmpowerLVAPManager::handle_del_mcast_receiver(Packet *p, uint32_t offset) {
 	return 0;
 }
 
-int EmpowerLVAPManager::handle_add_traffic_type(Packet *p, uint32_t offset) {
+int EmpowerLVAPManager::handle_add_traffic_rule(Packet *p, uint32_t offset) {
 
-	struct empower_add_traffic_type *add_traffic_type;
-	int dscp = add_traffic_type->dscp();
-	String ssid = add_traffic_type->ssid();
-	empower_tenant_types tenant_type = (empower_tenant_types) add_traffic_type->tenant_type();
-	int priority = add_traffic_type->priority();
-	int parent_priority = add_traffic_type->parent_priority();
-	bool amsdu_aggregation = add_traffic_type->aggregation_flags(EMPOWER_AMSDU_AGGREGATION);
-	bool ampdu_aggregation = add_traffic_type->aggregation_flags(EMPOWER_AMPDU_AGGREGATION);
+	struct empower_add_traffic_rule *add_traffic_rule;
+	int dscp = add_traffic_rule->dscp();
+	String ssid = add_traffic_rule->ssid();
+	empower_tenant_types tenant_type = (empower_tenant_types) add_traffic_rule->tenant_type();
+	int priority = add_traffic_rule->priority();
+	int parent_priority = add_traffic_rule->parent_priority();
+	bool amsdu_aggregation = add_traffic_rule->aggregation_flags(EMPOWER_AMSDU_AGGREGATION);
+	bool ampdu_aggregation = add_traffic_rule->aggregation_flags(EMPOWER_AMPDU_AGGREGATION);
 
 	// message to the scheduler element to add a new queue
-	_eqoss->request_slice(dscp, ssid, tenant_type, priority, parent_priority, amsdu_aggregation);
+	_eqoss->request_traffic_rule(dscp, ssid, tenant_type, priority, parent_priority, amsdu_aggregation);
+	return 0;
+}
+
+int EmpowerLVAPManager::handle_traffic_rule_status_request(Packet *p, uint32_t offset) {
+	// send Traffic Rule status update messages
+	for (TrafficRulesQueuesIter it = _eqoss->get_traffic_rules()->begin(); it.live(); it++) {
+		send_status_traffic_rule(it.key()._dscp, it.key()._tenant);
+	}
 	return 0;
 }
 
@@ -1981,8 +2025,8 @@ void EmpowerLVAPManager::push(int, Packet *p) {
 		case EMPOWER_PT_CAPS_REQUEST:
 			handle_caps_request(p, offset);
 			break;
-		case EMPOWER_PT_ADD_TRAFFIC_TYPE:
-			handle_add_traffic_type(p, offset);
+		case EMPOWER_PT_ADD_TRAFFIC_RULE:
+			handle_add_traffic_rule(p, offset);
 			break;
 		default:
 			click_chatter("%{element} :: %s :: Unknown packet type: %d",
@@ -2108,7 +2152,7 @@ enum {
 	H_DEL_LVAP,
 	H_RECONNECT,
 	H_INTERFACES,
-	H_REQUEST_TRAFFIC_TYPE
+	H_REQUEST_TRAFFIC_RULE
 };
 
 String EmpowerLVAPManager::read_handler(Element *e, void *thunk) {
@@ -2315,26 +2359,23 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 		}
 		break;
 	}
-	case H_REQUEST_TRAFFIC_TYPE: {
+	case H_REQUEST_TRAFFIC_RULE: {
 		Vector<String> tokens;
 		cp_spacevec(s, tokens);
 
-		if (tokens.size() != 6)
-			return errh->error("Setting a new network slice needs 6 parameters");
-
-		EtherAddress hwaddr;
-		int port_id;
-		String iface;
+		if (tokens.size() != 7)
+			return errh->error("Setting a new network slice needs 7 parameters");
 
 		int dscp;
 		String tenant;
 		empower_tenant_types tenant_type;
 		int priority;
 		int parent_priority;
-		bool aggregate;
+		bool amsdu_aggregation;
+		bool ampdu_aggregation;
 
-		TrafficRulesQueues* slices = f->_eqoss->get_slices();
-		f->_eqoss->get_slices_lock()->acquire_write();
+		TrafficRulesQueues* slices = f->_eqoss->get_traffic_rules();
+		f->_eqoss->get_traffic_rules_lock()->acquire_write();
 
 		if (!IntArg().parse(tokens[0], dscp)) {
 			return errh->error("error param %s: must start with an int", tokens[0].c_str());
@@ -2356,13 +2397,16 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 			return errh->error("error param %s: must start with an int", tokens[4].c_str());
 		}
 
-		if (!BoolArg().parse(tokens[5], aggregate)) {
-			return errh->error("error param %s: must start with an Ethernet address", tokens[5].c_str());
+		if (!BoolArg().parse(tokens[5], amsdu_aggregation)) {
+			return errh->error("error param %s: must start with a boolean value", tokens[5].c_str());
 		}
 
-		f->_eqoss->request_slice(dscp, tenant, tenant_type, priority, parent_priority, aggregate);
+		if (!BoolArg().parse(tokens[6], ampdu_aggregation)) {
+			return errh->error("error param %s: must start with a boolean value", tokens[6].c_str());
+		}
 
-		f->_eqoss->get_slices_lock()->release_write();
+		f->_eqoss->request_traffic_rule(dscp, tenant, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation);
+		f->_eqoss->get_traffic_rules_lock()->release_write();
 		break;
 	}
 	}

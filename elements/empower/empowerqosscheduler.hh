@@ -5,8 +5,8 @@
  *      Author: Estefania Coronado
  */
 
-#ifndef ELEMENTS_EMPOWER_EMPOWERQOSSCHEDULER_HH_
-#define ELEMENTS_EMPOWER_EMPOWERQOSSCHEDULER_HH_
+#ifndef CLICK_EMPOWER_EMPOWERQOSSCHEDULER_HH_
+#define CLICK_EMPOWER_EMPOWERQOSSCHEDULER_HH_
 #include <click/config.h>
 #include <click/element.hh>
 #include <click/timer.hh>
@@ -17,14 +17,17 @@
 #include <clicknet/wifi.h>
 #include <click/sync.hh>
 #include <click/notifier.hh>
+#include <click/string.hh>
 #include <elements/standard/simplequeue.hh>
 #include "empowerpacket.hh"
+#include "empowerlvapmanager.hh"
+CLICK_DECLS
 
 class FrameInfo {
 public:
 	Timestamp _arrival_time;
 	Timestamp _average_time_diff;
-	Timestamp _last_frame_time;
+	int _last_frame_time;
 	bool _complete;
 	WritablePacket * _frame; // It can be a simple or an aggregated frame
 	int _frame_length; // In case of aggregation this length and the one of the frame may not be the same
@@ -33,17 +36,24 @@ public:
 	EtherAddress _bssid;
 	FrameInfo() {
 		_arrival_time = Timestamp::now();
-		_last_frame_time = Timestamp::now();
+		_last_frame_time = 0;
 		_complete = false;
-		_average_time_diff = 0; // It should be the time needed to transmit this frame
+		_average_time_diff = Timestamp::now(); // It should be the time needed to transmit this frame
 		_frame_length = 0;
 		_msdus = 1;
 		_frame = 0;
-		_dst = 0; // TODO. Can this be done?
-		_bssid = 0; // TODO. Can this be done?
+		_dst = EtherAddress();
+		_bssid = EtherAddress();
 	}
 
 	~FrameInfo() {
+	}
+
+	inline bool operator==(const FrameInfo &a, const FrameInfo &b) {
+		return (a._arrival_time == b._arrival_time && a._average_time_diff == b._average_time_diff
+				&& a._bssid == b._bssid && a._complete == b._complete && a._dst == b._dst
+				&& a._frame == b._frame && a._frame_length && b._frame_length
+				&& a._last_frame_time && b._last_frame_time && a._msdus == b._msdus);
 	}
 };
 
@@ -60,17 +70,17 @@ public:
 	~BufferQueueInfo() {
 	}
 
-//	inline bool
-//	operator==(const BufferQueueInfo &a, const BufferQueueInfo &b)
-//	{
-//	    return (a._dscp == b._dscp && a._tenant == b._tenant);
-//	}
-
 	inline bool
-	operator==(const BufferQueueInfo &b)
+	operator==(const BufferQueueInfo &a, const BufferQueueInfo &b)
 	{
-	    return (_dscp == b._dscp && _tenant == b._tenant);
+	    return (a._dscp == b._dscp && !(a._tenant.compare(b._tenant)));
 	}
+
+//	inline bool
+//	operator==(const BufferQueueInfo &b)
+//	{
+//	    return (_dscp == b._dscp && _tenant == b._tenant);
+//	}
 };
 
 class BufferQueue {
@@ -78,7 +88,8 @@ public:
 	empower_tenant_types _tenant_type;
 	int _priority;
 	int _parent_priority;
-	bool _aggregate;
+	bool _amsdu_aggregation;
+	bool _ampdu_aggregation;
 	int _max_delay;
 	int _max_length;
 	int _deficit;
@@ -95,8 +106,10 @@ public:
 
 	ReadWriteLock _buffer_queue_lock;
 
-	BufferQueue(empower_tenant_types tenant_type, uint8_t priority, uint8_t parent_priority, bool aggregate, uint8_t max_delay):
-		_tenant_type(tenant_type), _priority(priority), _parent_priority(parent_priority), _aggregate(aggregate), _max_delay(max_delay){
+	BufferQueue(empower_tenant_types tenant_type, uint8_t priority, uint8_t parent_priority, bool amsdu_aggregation,
+			bool ampdu_aggregation, uint8_t max_delay):
+		_tenant_type(tenant_type), _priority(priority), _parent_priority(parent_priority), _amsdu_aggregation(amsdu_aggregation),
+		_ampdu_aggregation(ampdu_aggregation), _max_delay(max_delay){
 		_max_length = 7935;
 		_deficit = 0;
 		_quantum = 1000;
@@ -158,8 +171,10 @@ public:
 		_buffer_queue_lock.release_write();
 	}
 
-	bool check_delay_deadline(FrameInfo *frame, int transm_time) {
-		if (((Timestamp::now() - frame->_arrival_time) + transm_time) > _max_delay)
+	bool check_delay_deadline(FrameInfo *frame, float transm_time) {
+		Timestamp elapsed_time = (Timestamp::now() - frame->_arrival_time);
+		float time = elapsed_time.usec();
+		if ((elapsed_time + transm_time) > float(_max_delay))
 			return true;
 		return false;
 	}
@@ -169,9 +184,12 @@ public:
 typedef HashTable<EtherAddress, FrameInfo *> UserFrames;
 typedef UserFrames::iterator UserFramesIter;
 
+inline bool operator==(const BufferQueueInfo &a, const BufferQueueInfo &b) {
+	return (a._dscp == b._dscp && !(a._tenant.compare(b._tenant)));
+}
+
 typedef HashTable <BufferQueueInfo, BufferQueue *> TrafficRulesQueues;
 typedef TrafficRulesQueues::iterator TrafficRulesQueuesIter;
-
 
 class EmpowerQoSScheduler : public SimpleQueue { public:
 
@@ -195,23 +213,29 @@ class EmpowerQoSScheduler : public SimpleQueue { public:
     int bdrops() { return(_bdrops); }
     int system_quantum() { return(_system_quantum); }
 
-    TrafficRulesQueues* get_slices() { return &_slices; }
-    String list_slices();
-    void request_slice(int, String, empower_tenant_types, int, int, bool);
-    void release_slice(int, String);
-    void remove_slice_resources(int, String);
-    int frame_transmission_time(EtherAddress, int);
+    TrafficRulesQueues* get_traffic_rules() { return &_traffic_rules; }
+    String list_traffic_rules();
+    void request_traffic_rule(int, String, empower_tenant_types, int, int, bool, bool);
+    void release_traffic_rule(int, String);
+    void remove_traffic_rule_resources(int, String);
+    float frame_transmission_time(EtherAddress, int);
     int map_dscp_to_delay(int);
     void enqueue_unicast_frame(EtherAddress, BufferQueue *, Packet *, EtherAddress);
     Packet * empower_wifi_encap(FrameInfo *);
     Packet *wifi_encap(Packet *, EtherAddress, EtherAddress, EtherAddress);
 
-    ReadWriteLock * get_slices_lock() {
-    	return _slices_lock;
+    ReadWriteLock get_traffic_rules_lock() {
+    	return _traffic_rules_lock;
     }
 
     int default_dscp() {
 		return _default_dscp;
+	}
+
+    BufferQueue * get_traffic_rule(int dscp, String tenant) {
+    	BufferQueueInfo tr_key (dscp, tenant);
+    	BufferQueue *traffic_queue = _traffic_rules.get(tr_key);
+		return traffic_queue;
 	}
 
   protected:
@@ -222,20 +246,16 @@ class EmpowerQoSScheduler : public SimpleQueue { public:
     ActiveNotifier _notifier;
     class EmpowerLVAPManager *_el;
 
-    TrafficRulesQueues _slices;
+    TrafficRulesQueues _traffic_rules;
     UserFrames _current_frame_clients;
     Vector <BufferQueueInfo> _rr_order;
-    EtherAddress _next;
-    HashTable<int, int> dscp_delay_relationship;
-    ReadWriteLock _slices_lock;
+    ReadWriteLock _traffic_rules_lock;
 
     int _default_dscp;
-
     int _system_quantum;
     int _drops;
     int _bdrops;
-
-    int _empty_slices;
+    int _empty_traffic_rules;
 
     int compute_deficit(Packet*);
     static int write_handler(const String &, Element *, void *, ErrorHandler *);
@@ -243,4 +263,5 @@ class EmpowerQoSScheduler : public SimpleQueue { public:
 
 };
 
-#endif /* ELEMENTS_EMPOWER_EMPOWERQOSSCHEDULER_HH_ */
+CLICK_ENDDECLS
+#endif

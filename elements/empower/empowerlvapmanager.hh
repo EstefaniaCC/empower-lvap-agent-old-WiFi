@@ -282,7 +282,8 @@ public:
 	int handle_del_mcast_receiver(Packet *, uint32_t);
 	int handle_cqm_links_request(Packet *, uint32_t);
 	int handle_caps_request(Packet *, uint32_t);
-	int handle_add_traffic_type(Packet *, uint32_t);
+	int handle_add_traffic_rule(Packet *, uint32_t);
+	int handle_traffic_rule_status_request(Packet *, uint32_t);
 
 	void send_hello();
 	void send_probe_request(EtherAddress, String, EtherAddress, int, empower_bands_types, empower_bands_types);
@@ -307,6 +308,7 @@ public:
 	void send_igmp_report(EtherAddress, Vector<IPAddress>*, Vector<enum empower_igmp_record_type>*);
 	void send_cqm_links_response(uint32_t);
 	void send_add_del_lvap_response(uint8_t, EtherAddress, uint32_t, uint32_t);
+	void send_status_traffic_rule(uint8_t, String);
 
 	int remove_lvap(EmpowerStationState *);
 	LVAP* lvaps() { return &_lvaps; }
