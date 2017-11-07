@@ -13,7 +13,6 @@
 #include "empowerpacket.hh"
 #include "igmppacket.hh"
 #include "empowermulticasttable.hh"
-#include "empowerqosscheduler.hh"
 CLICK_DECLS
 
 /*

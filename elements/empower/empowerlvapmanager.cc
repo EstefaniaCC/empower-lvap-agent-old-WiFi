@@ -33,6 +33,7 @@
 #include "empowerdisassocresponder.hh"
 #include "empowerrxstats.hh"
 #include "empowercqm.hh"
+#include "empowerqosscheduler.hh"
 CLICK_DECLS
 
 EmpowerLVAPManager::EmpowerLVAPManager() :
@@ -1903,7 +1904,7 @@ int EmpowerLVAPManager::handle_add_traffic_rule(Packet *p, uint32_t offset) {
 	bool ampdu_aggregation = add_traffic_rule->aggregation_flags(EMPOWER_AMPDU_AGGREGATION);
 
 	// message to the scheduler element to add a new queue
-	_eqoss->request_traffic_rule(dscp, ssid, tenant_type, priority, parent_priority, amsdu_aggregation);
+	_eqoss->request_traffic_rule(dscp, ssid, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation);
 	return 0;
 }
 
@@ -2340,14 +2341,14 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 
 		int dscp;
 		String tenant;
-		empower_tenant_types tenant_type;
+		int tenant_t;
 		int priority;
 		int parent_priority;
 		bool amsdu_aggregation;
 		bool ampdu_aggregation;
 
 		TrafficRulesQueues* slices = f->_eqoss->get_traffic_rules();
-		f->_eqoss->get_traffic_rules_lock()->acquire_write();
+		f->_eqoss->get_traffic_rules_lock().acquire_write();
 
 		if (!IntArg().parse(tokens[0], dscp)) {
 			return errh->error("error param %s: must start with an int", tokens[0].c_str());
@@ -2357,7 +2358,7 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 			return errh->error("error param %s: must start with a String", tokens[1].c_str());
 		}
 
-		if (!IntArg().parse(tokens[2], tenant_type)) {
+		if (!IntArg().parse(tokens[2], tenant_t)) {
 			return errh->error("error param %s: must start with an int", tokens[2].c_str());
 		}
 
@@ -2377,8 +2378,10 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 			return errh->error("error param %s: must start with a boolean value", tokens[6].c_str());
 		}
 
+		empower_tenant_types tenant_type = (empower_tenant_types) tenant_t;
+
 		f->_eqoss->request_traffic_rule(dscp, tenant, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation);
-		f->_eqoss->get_traffic_rules_lock()->release_write();
+		f->_eqoss->get_traffic_rules_lock().release_write();
 		break;
 	}
 	}
@@ -2395,7 +2398,7 @@ void EmpowerLVAPManager::add_handlers() {
 	add_read_handler("interfaces", read_handler, (void *) H_INTERFACES);
 	add_write_handler("reconnect", write_handler, (void *) H_RECONNECT);
 	add_write_handler("ports", write_handler, (void *) H_PORTS);
-	add_write_handler("traffic_type", write_handler, (void *) H_REQUEST_TRAFFIC_TYPE);
+	add_write_handler("traffic_type", write_handler, (void *) H_REQUEST_TRAFFIC_RULE);
 	add_write_handler("debug", write_handler, (void *) H_DEBUG);
 }
 

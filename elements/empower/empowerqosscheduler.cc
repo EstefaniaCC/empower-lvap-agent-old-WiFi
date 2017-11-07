@@ -19,7 +19,6 @@
 #include "empowerqosscheduler.hh"
 CLICK_DECLS
 
-
 EmpowerQoSScheduler::EmpowerQoSScheduler() :
 	_el(0), _debug(false) {
 }
@@ -62,7 +61,6 @@ int EmpowerQoSScheduler::initialize(ErrorHandler *) {
 
 void
 EmpowerQoSScheduler::push(int, Packet *p) {
-
 	const click_ip *ip = p->ip_header();
 	int dscp = (int)ip->ip_tos >> 2;
 
@@ -76,8 +74,6 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress dst = EtherAddress(eh->ether_dhost);
 
-	// TODO. Add BSSID info to the queues (taken from the vaps)
-	// TODO. The default queue / other queues are created with the add vaps
 	// There is no default queue. If nothing matches or if it is bcast/mcast -> dscp 0
 	// unicast traffic
 	if (!dst.is_broadcast() && !dst.is_group()) {
@@ -93,9 +89,30 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 			return;
 		}
 
+		if (!ess->_set_mask) {
+			p->kill();
+			return;
+		}
+		if (!ess->_authentication_status) {
+			click_chatter("%{element} :: %s :: station %s not authenticated",
+						  this,
+						  __func__,
+						  dst.unparse().c_str());
+			p->kill();
+			return;
+		}
+		if (!ess->_association_status) {
+			click_chatter("%{element} :: %s :: station %s not associated",
+						  this,
+						  __func__,
+						  dst.unparse().c_str());
+			p->kill();
+			return;
+		}
+
 		String ssid = ess->_ssid;
 		BufferQueueInfo tr_key (dscp, ssid);
-			BufferQueue * tr_queue = get_traffic_rule(dscp, ssid);
+		BufferQueue * tr_queue = get_traffic_rule(dscp, ssid);
 
 		// The dscp does not match any queue. The traffic is enqueued in the default queue
 		// The default queue does not aggregate
@@ -108,6 +125,15 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 			dscp = _default_dscp;
 			BufferQueueInfo tr_key (dscp, ssid);
 			tr_queue = get_traffic_rule(dscp, ssid);
+
+			// TODO. Add a new queue is the tenant is not there for an incoming packet
+			// What about multicast traffic?
+			// If the queue is not defined even with the default dscp, it means that a new queue must be added for this tenant
+			if (!tr_queue) {
+				empower_tenant_types tenant_type = ((ess->_lvap_bssid == ess->_net_bssid) ? EMPOWER_TYPE_UNIQUE : EMPOWER_TYPE_SHARED);
+				request_traffic_rule(dscp, ssid, tenant_type, 100, 0, false, false); // parent_priority must be set by the controller
+				// TODO. Send message to the controller to register it.
+			}
 		}
 
 		enqueue_unicast_frame(dst, tr_queue, p, ess->_lvap_bssid);
@@ -316,8 +342,8 @@ EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_qu
 		current_frame->_last_frame_time = Timestamp::now();
 	}
 	// Check if it can wait for the next frame to complete this one
-	float transm_time = frame_transmission_time(dst, current_frame->_frame_length);
-	if ((transm_time + current_frame->_average_time_diff) > tr_queue->_max_delay) {
+	int transm_time = frame_transmission_time(dst, current_frame->_frame_length);
+	if ((Timestamp::make_usec(transm_time) + current_frame->_average_time_diff) > Timestamp::make_usec(tr_queue->_max_delay)) {
 		current_frame->_complete = true;
 	}
 }
@@ -710,6 +736,12 @@ EmpowerQoSScheduler::map_dscp_to_delay(int dscp) {
 	return delay;
 	}
 }
+
+enum { H_DROPS,
+	H_BYTEDROPS,
+	H_LIST_QUEUES
+};
+
 void
 EmpowerQoSScheduler::add_handlers()
 {
@@ -717,3 +749,22 @@ EmpowerQoSScheduler::add_handlers()
 	add_read_handler("byte_drops", read_handler, (void*)H_BYTEDROPS);
 	add_read_handler("list_queues", read_handler, (void*)H_LIST_QUEUES);
 }
+
+String
+EmpowerQoSScheduler::read_handler(Element *e, void *thunk)
+{
+	EmpowerQoSScheduler *c = (EmpowerQoSScheduler *)e;
+	switch ((intptr_t)thunk) {
+	case H_DROPS:
+		return(String(c->drops()) + "\n");
+	case H_BYTEDROPS:
+		return(String(c->bdrops()) + "\n");
+	case H_LIST_QUEUES:
+		return(c->list_traffic_rules());
+	default:
+		return "<error>\n";
+	}
+}
+
+CLICK_ENDDECLS
+EXPORT_ELEMENT(EmpowerQoSScheduler)

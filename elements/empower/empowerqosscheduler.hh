@@ -27,7 +27,7 @@ class FrameInfo {
 public:
 	Timestamp _arrival_time;
 	Timestamp _average_time_diff;
-	int _last_frame_time;
+	Timestamp _last_frame_time;
 	bool _complete;
 	WritablePacket * _frame; // It can be a simple or an aggregated frame
 	int _frame_length; // In case of aggregation this length and the one of the frame may not be the same
@@ -36,7 +36,7 @@ public:
 	EtherAddress _bssid;
 	FrameInfo() {
 		_arrival_time = Timestamp::now();
-		_last_frame_time = 0;
+		_last_frame_time = Timestamp();
 		_complete = false;
 		_average_time_diff = Timestamp::now(); // It should be the time needed to transmit this frame
 		_frame_length = 0;
@@ -49,11 +49,11 @@ public:
 	~FrameInfo() {
 	}
 
-	inline bool operator==(const FrameInfo &a, const FrameInfo &b) {
-		return (a._arrival_time == b._arrival_time && a._average_time_diff == b._average_time_diff
-				&& a._bssid == b._bssid && a._complete == b._complete && a._dst == b._dst
-				&& a._frame == b._frame && a._frame_length && b._frame_length
-				&& a._last_frame_time && b._last_frame_time && a._msdus == b._msdus);
+	inline bool operator==(const FrameInfo &a) {
+		return (a._arrival_time == _arrival_time && a._average_time_diff == _average_time_diff
+				&& a._bssid == _bssid && a._complete == _complete && a._dst == _dst
+				&& a._frame == _frame && a._frame_length && _frame_length
+				&& a._last_frame_time && _last_frame_time && a._msdus == _msdus);
 	}
 };
 
@@ -70,17 +70,21 @@ public:
 	~BufferQueueInfo() {
 	}
 
-	inline bool
-	operator==(const BufferQueueInfo &a, const BufferQueueInfo &b)
-	{
-	    return (a._dscp == b._dscp && !(a._tenant.compare(b._tenant)));
+//	inline bool
+//	operator==(const BufferQueueInfo &a, const BufferQueueInfo &b)
+//	{
+//	    return (a._dscp == b._dscp && !(a._tenant.compare(b._tenant)));
+//	}
+
+	inline size_t hashcode() const {
+		return (_tenant.hashcode());
 	}
 
-//	inline bool
-//	operator==(const BufferQueueInfo &b)
-//	{
-//	    return (_dscp == b._dscp && _tenant == b._tenant);
-//	}
+	inline bool
+	operator==(const BufferQueueInfo &b)
+	{
+	    return (_dscp == b._dscp && _tenant == b._tenant);
+	}
 };
 
 class BufferQueue {
@@ -171,10 +175,9 @@ public:
 		_buffer_queue_lock.release_write();
 	}
 
-	bool check_delay_deadline(FrameInfo *frame, float transm_time) {
+	bool check_delay_deadline(FrameInfo *frame, int transmission_time) {
 		Timestamp elapsed_time = (Timestamp::now() - frame->_arrival_time);
-		float time = elapsed_time.usec();
-		if ((elapsed_time + transm_time) > float(_max_delay))
+		if ((elapsed_time + Timestamp::make_usec(transmission_time)) > Timestamp::make_usec(_max_delay))
 			return true;
 		return false;
 	}
@@ -218,7 +221,7 @@ class EmpowerQoSScheduler : public SimpleQueue { public:
     void request_traffic_rule(int, String, empower_tenant_types, int, int, bool, bool);
     void release_traffic_rule(int, String);
     void remove_traffic_rule_resources(int, String);
-    float frame_transmission_time(EtherAddress, int);
+    int frame_transmission_time(EtherAddress, int);
     int map_dscp_to_delay(int);
     void enqueue_unicast_frame(EtherAddress, BufferQueue *, Packet *, EtherAddress);
     Packet * empower_wifi_encap(FrameInfo *);
