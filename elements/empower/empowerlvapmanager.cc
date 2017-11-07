@@ -448,42 +448,6 @@ void EmpowerLVAPManager::send_status_vap(EtherAddress bssid) {
 
 void EmpowerLVAPManager::send_status_port(EtherAddress sta, int iface) {
 
-	ResourceElement* re = iface_to_element(iface);
-
-	if (!re) {
-		click_chatter("%{element} :: %s :: invalid iface id %u!",
-					  this,
-					  __func__,
-					  iface);
-		return;
-	}
-
-	send_status_port(sta, iface, re->_hwaddr, re->_channel, re->_band);
-
-}
-
-void EmpowerLVAPManager::send_status_port(EtherAddress sta, EtherAddress hwaddr,
-		int channel, empower_bands_types band) {
-
-	int iface = element_to_iface(hwaddr, channel, band);
-
-	if (iface == -1) {
-		click_chatter("%{element} :: %s :: invalid resource element (%s, %u, %u)!",
-					  this,
-					  __func__,
-					  hwaddr.unparse().c_str(),
-					  channel,
-					  band);
-		return;
-	}
-
-	send_status_port(sta, iface, hwaddr, channel, band);
-
-}
-
-void EmpowerLVAPManager::send_status_port(EtherAddress sta, int iface, EtherAddress hwaddr,
-		int channel, empower_bands_types band) {
-
 	TxPolicyInfo * tx_policy = _rcs[iface]->tx_policies()->tx_table()->find(sta);
 
 	int len = sizeof(empower_status_port) + tx_policy->_mcs.size() + tx_policy->_ht_mcs.size();
@@ -496,6 +460,8 @@ void EmpowerLVAPManager::send_status_port(EtherAddress sta, int iface, EtherAddr
 					  __func__);
 		return;
 	}
+
+	ResourceElement* re = iface_to_element(iface);
 
 	memset(p->data(), 0, p->length());
 
@@ -511,9 +477,9 @@ void EmpowerLVAPManager::send_status_port(EtherAddress sta, int iface, EtherAddr
 	status->set_sta(sta);
 	status->set_nb_mcs(tx_policy->_mcs.size());
 	status->set_nb_ht_mcs(tx_policy->_ht_mcs.size());
-	status->set_hwaddr(hwaddr);
-	status->set_channel(channel);
-	status->set_band(band);
+	status->set_hwaddr(re->_hwaddr);
+	status->set_channel(re->_channel);
+	status->set_band(re->_band);
 	status->set_ur_mcast_count(tx_policy->_ur_mcast_count);
 
 	uint8_t *ptr = (uint8_t *) status;
@@ -1103,8 +1069,6 @@ void EmpowerLVAPManager::send_txp_counters_response(uint32_t counters_id, EtherA
 
 void EmpowerLVAPManager::send_caps() {
 
-	_ports_lock.acquire_read();
-
 	int len = sizeof(empower_caps);
 	len += _ifaces_to_elements.size() * sizeof(struct resource_elements_entry);
 	len += _ports.size() * sizeof(struct port_elements_entry);
@@ -1159,8 +1123,6 @@ void EmpowerLVAPManager::send_caps() {
 		ptr += sizeof(struct port_elements_entry);
 	}
 
-	_ports_lock.release_read();
-
 	send_message(p);
 
 }
@@ -1201,12 +1163,39 @@ void EmpowerLVAPManager:: send_status_traffic_rule(uint8_t dscp, String tenant) 
 	send_message(p);
 }
 
-int EmpowerLVAPManager::handle_caps_request(Packet *p, uint32_t offset) {
 
+int EmpowerLVAPManager::handle_caps_request(Packet *, uint32_t) {
+	// send caps response
 	send_caps();
-
 	return 0;
+}
 
+int EmpowerLVAPManager::handle_lvap_status_request(Packet *, uint32_t) {
+	// send LVAP status update messages
+	for (LVAPIter it = _lvaps.begin(); it.live(); it++) {
+		send_status_lvap(it.key());
+	}
+	return 0;
+}
+
+int EmpowerLVAPManager::handle_vap_status_request(Packet *, uint32_t) {
+	// send VAP status update messages
+	for (VAPIter it = _vaps.begin(); it.live(); it++) {
+		send_status_vap(it.key());
+	}
+	return 0;
+}
+
+int EmpowerLVAPManager::handle_port_status_request(Packet *, uint32_t) {
+	// send tx policies
+	for (REIter it_re = _ifaces_to_elements.begin(); it_re.live(); it_re++) {
+		int iface_id = it_re.key();
+		for (TxTableIter it_txp = get_tx_policies(iface_id)->tx_table()->begin(); it_txp.live(); it_txp++) {
+			EtherAddress sta = it_txp.key();
+			send_status_port(sta, iface_id);
+		}
+	}
+	return 0;
 }
 
 int EmpowerLVAPManager::handle_add_vap(Packet *p, uint32_t offset) {
@@ -1830,12 +1819,6 @@ int EmpowerLVAPManager::handle_lvap_stats_request(Packet *p, uint32_t offset) {
 }
 
 int EmpowerLVAPManager::handle_nimg_request(Packet *p, uint32_t offset) {
-	if (!_ers) {
-		click_chatter("%{element} :: %s :: RXStats Element not available!",
-					  this,
-					  __func__);
-		return 0;
-	}
 	struct empower_cqm_request *q = (struct empower_cqm_request *) (p->data() + offset);
 	EtherAddress hwaddr = q->hwaddr();
 	empower_bands_types band = (empower_bands_types) q->band();
@@ -2025,6 +2008,15 @@ void EmpowerLVAPManager::push(int, Packet *p) {
 		case EMPOWER_PT_CAPS_REQUEST:
 			handle_caps_request(p, offset);
 			break;
+		case EMPOWER_PT_LVAP_STATUS_REQ:
+			handle_lvap_status_request(p, offset);
+			break;
+		case EMPOWER_PT_VAP_STATUS_REQ:
+			handle_vap_status_request(p, offset);
+			break;
+		case EMPOWER_PT_PORT_STATUS_REQ:
+			handle_port_status_request(p, offset);
+			break;
 		case EMPOWER_PT_ADD_TRAFFIC_RULE:
 			handle_add_traffic_rule(p, offset);
 			break;
@@ -2159,13 +2151,11 @@ String EmpowerLVAPManager::read_handler(Element *e, void *thunk) {
 	EmpowerLVAPManager *td = (EmpowerLVAPManager *) e;
 	switch ((uintptr_t) thunk) {
 	case H_PORTS: {
-	    td->_ports_lock.acquire_read();
 	    StringAccum sa;
 		for (PortsIter it = td->_ports.begin(); it.live(); it++) {
 		    sa << it.value().unparse();
 		    sa << "\n";
 		}
-	    td->_ports_lock.release_read();
 		return sa.take_string();
 	}
 	case H_DEBUG:
@@ -2316,7 +2306,6 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 		int port_id;
 		String iface;
 
-		f->_ports_lock.acquire_write();
 		f->_ports.clear();
 
 		for (int i = 0; i < tokens.size(); i+=3) {
@@ -2332,31 +2321,14 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 			f->_ports.find_insert(port_id, NetworkPort(hwaddr, iface, port_id));
 		}
 
-		f->_ports_lock.release_write();
 		break;
 
 	}
 	case H_RECONNECT: {
 		// clear triggers
-		if (f->_ers) {
-			f->_ers->clear_triggers();
-		}
-		// send LVAP status update messages
-		for (LVAPIter it = f->_lvaps.begin(); it.live(); it++) {
-			f->send_status_lvap(it.key());
-		}
-		// send VAP status update messages
-		for (VAPIter it = f->_vaps.begin(); it.live(); it++) {
-			f->send_status_vap(it.key());
-		}
-		// send tx policies
-		for (REIter it_re = f->_ifaces_to_elements.begin(); it_re.live(); it_re++) {
-			int iface_id = it_re.key();
-			for (TxTableIter it_txp = f->get_tx_policies(iface_id)->tx_table()->begin(); it_txp.live(); it_txp++) {
-				EtherAddress sta = it_txp.key();
-				f->send_status_port(sta, iface_id, it_re.value()->_hwaddr, it_re.value()->_channel, it_re.value()->_band);
-			}
-		}
+		f->_ers->clear_triggers();
+		// send hello
+		f->send_hello();
 		break;
 	}
 	case H_REQUEST_TRAFFIC_RULE: {

@@ -282,6 +282,9 @@ public:
 	int handle_del_mcast_receiver(Packet *, uint32_t);
 	int handle_cqm_links_request(Packet *, uint32_t);
 	int handle_caps_request(Packet *, uint32_t);
+	int handle_lvap_status_request(Packet *, uint32_t);
+	int handle_vap_status_request(Packet *, uint32_t);
+	int handle_port_status_request(Packet *, uint32_t);
 	int handle_add_traffic_rule(Packet *, uint32_t);
 	int handle_traffic_rule_status_request(Packet *, uint32_t);
 
@@ -292,8 +295,6 @@ public:
 	void send_status_lvap(EtherAddress);
 	void send_status_vap(EtherAddress);
 	void send_status_port(EtherAddress, int);
-	void send_status_port(EtherAddress, EtherAddress, int, empower_bands_types);
-	void send_status_port(EtherAddress, int, EtherAddress, int, empower_bands_types);
 	void send_counters_response(EtherAddress, uint32_t);
 	void send_txp_counters_response(uint32_t, EtherAddress, uint8_t, empower_bands_types, EtherAddress);
 	void send_img_response(int, uint32_t, EtherAddress, uint8_t, empower_bands_types);
@@ -362,7 +363,6 @@ public:
 
 private:
 
-	ReadWriteLock _ports_lock;
 	RETable _ifaces_to_elements;
 
 	void compute_bssid_mask();
