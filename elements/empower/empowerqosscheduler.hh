@@ -14,6 +14,7 @@
 #include <click/ipaddress.hh>
 #include <click/hashtable.hh>
 #include <click/timestamp.hh>
+#include <click/confparse.hh>
 #include <clicknet/wifi.h>
 #include <click/sync.hh>
 #include <click/notifier.hh>
@@ -34,6 +35,7 @@ public:
 	int _msdus;
 	EtherAddress _dst;
 	EtherAddress _bssid;
+	int _iface;
 	FrameInfo() {
 		_arrival_time = Timestamp::now();
 		_last_frame_time = Timestamp();
@@ -41,9 +43,10 @@ public:
 		_average_time_diff = Timestamp::now(); // It should be the time needed to transmit this frame
 		_frame_length = 0;
 		_msdus = 1;
-		_frame = 0;
+		_frame = WritablePacket();
 		_dst = EtherAddress();
 		_bssid = EtherAddress();
+		_iface = -1;
 	}
 
 	~FrameInfo() {
@@ -223,7 +226,7 @@ class EmpowerQoSScheduler : public SimpleQueue { public:
     void remove_traffic_rule_resources(int, String);
     int frame_transmission_time(EtherAddress, int);
     int map_dscp_to_delay(int);
-    void enqueue_unicast_frame(EtherAddress, BufferQueue *, Packet *, EtherAddress);
+    void enqueue_unicast_frame(EtherAddress, BufferQueue *, Packet *, EtherAddress, int);
     Packet * empower_wifi_encap(FrameInfo *);
     Packet *wifi_encap(Packet *, EtherAddress, EtherAddress, EtherAddress);
 
@@ -259,6 +262,7 @@ class EmpowerQoSScheduler : public SimpleQueue { public:
     int _drops;
     int _bdrops;
     int _empty_traffic_rules;
+    bool _debug;
 
     int compute_deficit(Packet*);
     static int write_handler(const String &, Element *, void *, ErrorHandler *);

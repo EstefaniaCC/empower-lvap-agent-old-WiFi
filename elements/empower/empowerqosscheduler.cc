@@ -9,7 +9,9 @@
 #include <click/confparse.hh>
 #include <click/error.hh>
 #include <click/straccum.hh>
+#include <click/args.hh>
 #include <click/standard/scheduleinfo.hh>
+#include <click/packet_anno.hh>
 #include <clicknet/ether.h>
 #include <clicknet/wifi.h>
 #include <clicknet/llc.h>
@@ -136,7 +138,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 			}
 		}
 
-		enqueue_unicast_frame(dst, tr_queue, p, ess->_lvap_bssid);
+		enqueue_unicast_frame(dst, tr_queue, p, ess->_lvap_bssid, ess->_iface_id);
 		return;
 	}
 
@@ -179,7 +181,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 				}
 				click_ether *ethh = unicast_pkt->ether_header();
 				memcpy(ethh->ether_dhost, &it.value()._sta, 6);
-				enqueue_unicast_frame(dst,tr_queue, (Packet *) unicast_pkt, it.value()._lvap_bssid);
+				enqueue_unicast_frame(dst,tr_queue, (Packet *) unicast_pkt, it.value()._lvap_bssid, it.value()._iface_id);
 			}
 		} else {
 			// EMPOWER_TYPE_SHARED
@@ -228,7 +230,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 							continue;
 						}
 						// TODO. Is this sta or dst?
-						enqueue_unicast_frame(sta, tr_queue, q, it.value()._lvap_bssid);
+						enqueue_unicast_frame(sta, tr_queue, q, it.value()._lvap_bssid, it.value()._iface_id);
 					}
 
 				} else if (tx_policy->_tx_mcast == TX_MCAST_UR) {
@@ -269,7 +271,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 						if (!q) {
 							continue;
 						}
-						enqueue_unicast_frame(dst, tr_queue, q, bssid);
+						enqueue_unicast_frame(dst, tr_queue, q, bssid, it.value()._iface_id);
 					}
 
 				}
@@ -279,7 +281,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 }
 
 void
-EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queue, Packet * p, EtherAddress bssid) {
+EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queue, Packet * p, EtherAddress bssid, int iface) {
 	if (_current_frame_clients.find(dst) == _current_frame_clients.end()) {
 		FrameInfo * new_frame = new FrameInfo();
 		new_frame->_frame = p->uniqueify();
@@ -291,6 +293,7 @@ EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_qu
 		new_frame->_frame_length = new_frame->_frame->length();
 		new_frame->_dst = dst;
 		new_frame->_bssid = bssid;
+		new_frame->_iface = iface;
 		if (tr_queue->_frames.size() == 0)
 			_empty_traffic_rules--;
 
@@ -322,6 +325,7 @@ EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_qu
 		new_frame->_frame_length = new_frame->_frame->length();
 		new_frame->_dst = dst;
 		new_frame->_bssid = bssid;
+		new_frame->_iface = iface;
 		_current_frame_clients.set(dst, new_frame);
 		tr_queue->_buffer_queue_lock.acquire_write();
 		tr_queue->_frames.push_back(new_frame);
@@ -375,7 +379,7 @@ EmpowerQoSScheduler::pull(int) {
 			_current_frame_clients.erase(_current_frame_clients.find(next_frame->_dst));
 			// If the transmission time + the time that the frame has been in the queue exceeds the delay deadline
 			// this frame is discarded
-			float transm_time = frame_transmission_time(next_frame->_dst, next_frame->_frame_length);
+			int transm_time = frame_transmission_time(next_frame->_dst, next_frame->_frame_length);
 			if (!tr_queue->check_delay_deadline(next_frame, transm_time)) {
 				// If it is the first time of this queue and it is not empty, a new deficit must be assigned
 				if (tr_queue->_first_pkt) {
@@ -430,7 +434,7 @@ EmpowerQoSScheduler::pull(int) {
 	return 0;
 }
 
-float
+int
 EmpowerQoSScheduler::frame_transmission_time(EtherAddress next_delireved_client, int pkt_length) {
 	MinstrelDstInfo * nfo = _el->get_dst_info(next_delireved_client);
 	EmpowerStationState *ess = _el->lvaps()->get_pointer(next_delireved_client);
@@ -463,7 +467,7 @@ EmpowerQoSScheduler::frame_transmission_time(EtherAddress next_delireved_client,
 		usecs = calc_usecs_wifi_packet(pkt_length, rate, nb_retransm);
 	}
 
-	return (float) usecs;
+	return usecs;
 }
 
 String
@@ -649,7 +653,7 @@ EmpowerQoSScheduler::empower_wifi_encap(FrameInfo * next_frame) {
 	Packet * p_out = wifi_encap(p, dst, src, next_frame->_bssid);
 	TxPolicyInfo * tx_policy =_el->get_txp(dst);
 	tx_policy->update_tx(p->length());
-	SET_PAINT_ANNO(p_out, i);
+	SET_PAINT_ANNO(p_out, next_frame->_iface);
 	return p_out;
 }
 
@@ -732,12 +736,13 @@ EmpowerQoSScheduler::map_dscp_to_delay(int dscp) {
 					  this,
 					  __func__,
 					  dscp);
-		return 5000;
-	return delay;
+		delay = 5000;
 	}
+	return delay;
 }
 
 enum { H_DROPS,
+	H_DEBUG,
 	H_BYTEDROPS,
 	H_LIST_QUEUES
 };
@@ -748,6 +753,25 @@ EmpowerQoSScheduler::add_handlers()
 	add_read_handler("drops", read_handler, (void*)H_DROPS);
 	add_read_handler("byte_drops", read_handler, (void*)H_BYTEDROPS);
 	add_read_handler("list_queues", read_handler, (void*)H_LIST_QUEUES);
+	add_write_handler("debug", write_handler, (void *) H_DEBUG);
+}
+
+int EmpowerQoSScheduler::write_handler(const String &in_s, Element *e,
+		void *vparam, ErrorHandler *errh) {
+
+	EmpowerQoSScheduler *f = (EmpowerQoSScheduler *) e;
+	String s = cp_uncomment(in_s);
+
+	switch ((intptr_t) vparam) {
+	case H_DEBUG: {    //debug
+		bool debug;
+		if (!BoolArg().parse(s, debug))
+			return errh->error("debug parameter must be boolean");
+		f->_debug = debug;
+		break;
+	}
+	}
+	return 0;
 }
 
 String
@@ -755,6 +779,8 @@ EmpowerQoSScheduler::read_handler(Element *e, void *thunk)
 {
 	EmpowerQoSScheduler *c = (EmpowerQoSScheduler *)e;
 	switch ((intptr_t)thunk) {
+	case H_DEBUG:
+		return String(td->_debug) + "\n";
 	case H_DROPS:
 		return(String(c->drops()) + "\n");
 	case H_BYTEDROPS:
