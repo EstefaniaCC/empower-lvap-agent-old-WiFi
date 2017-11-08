@@ -2351,10 +2351,6 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 		bool ampdu_aggregation;
 		bool deadline_discard;
 
-			// message to the scheduler element to add a new queue
-			_eqosm->request_traffic_rule(dscp, ssid, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation, deadline_discard);
-
-
 		f->_eqosm->get_traffic_rules_lock().acquire_write();
 
 		if (!IntArg().parse(tokens[0], dscp)) {
