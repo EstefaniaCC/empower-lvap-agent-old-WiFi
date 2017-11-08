@@ -190,7 +190,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 			// if it is dms... the DA does not change, but the bssid is set to each lvap (so.. as many as lvaps)
 			BufferQueueInfo tr_key (_default_dscp,it_tr_queues.key()._tenant);
 			BufferQueue * tr_queue = get_traffic_rule(_default_dscp,it_tr_queues.key()._tenant);
-			FrameInfo * new_frame = new FrameInfo();
+//			FrameInfo * new_frame = new FrameInfo();
 
 			for (int i = 0; i < _el->num_ifaces(); i++) {
 				TxPolicyInfo * tx_policy = _el->get_tx_policies(i)->lookup(dst);
@@ -312,7 +312,7 @@ EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_qu
 
 	FrameInfo * current_frame = _current_frame_clients.get(dst);
 
-	if (((current_frame->_frame_length + p->length()) > tr_queue->_max_length) || current_frame->_complete) {
+	if (((current_frame->_frame_length + (int)p->length()) > tr_queue->_max_length) || current_frame->_complete) {
 		current_frame->_complete = true;
 		FrameInfo * new_frame = new FrameInfo();
 

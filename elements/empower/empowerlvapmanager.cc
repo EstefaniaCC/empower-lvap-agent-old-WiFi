@@ -1894,7 +1894,7 @@ int EmpowerLVAPManager::handle_del_mcast_receiver(Packet *p, uint32_t offset) {
 
 int EmpowerLVAPManager::handle_add_traffic_rule(Packet *p, uint32_t offset) {
 
-	struct empower_add_traffic_rule *add_traffic_rule;
+	struct empower_add_traffic_rule *add_traffic_rule = (struct empower_add_traffic_rule *) (p->data() + offset);
 	int dscp = add_traffic_rule->dscp();
 	String ssid = add_traffic_rule->ssid();
 	empower_tenant_types tenant_type = (empower_tenant_types) add_traffic_rule->tenant_type();
