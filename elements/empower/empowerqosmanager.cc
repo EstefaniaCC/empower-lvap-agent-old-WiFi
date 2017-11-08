@@ -490,14 +490,19 @@ EmpowerQoSManager::list_traffic_rules() {
 		sa << " priority ";
 		sa << it.value()->_priority;
 		if (it.value()->_amsdu_aggregation) {
-			sa << " A-MSDU AGGR.";
+			sa << " A-MSDU Aggr.";
 		} else {
-			sa << " NON A-MSDU AGGR.";
+			sa << " Non A-MSDU Aggr.";
 		}
 		if (it.value()->_ampdu_aggregation) {
-			sa << " A-MPDU AGGR.";
+			sa << " A-MPDU Aggr.";
 		} else {
-			sa << " NON  A-MPDU AGGR.";
+			sa << " Non A-MPDU Aggr.";
+		}
+		if (it.value()->_deadline_discard) {
+			sa << " Deadline drop";
+		} else {
+			sa << " Non Deadline drop";
 		}
 		sa << " max. delay ";
 		sa << it.value()->_max_delay;
