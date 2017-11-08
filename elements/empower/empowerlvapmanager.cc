@@ -33,11 +33,11 @@
 #include "empowerdisassocresponder.hh"
 #include "empowerrxstats.hh"
 #include "empowercqm.hh"
-#include "empowerqosscheduler.hh"
+#include "empowerqosmanager.hh"
 CLICK_DECLS
 
 EmpowerLVAPManager::EmpowerLVAPManager() :
-		_e11k(0), _ebs(0), _eauthr(0), _eassor(0), _edeauthr(0), _ers(0), _eqoss(0),
+		_e11k(0), _ebs(0), _eauthr(0), _eassor(0), _edeauthr(0), _ers(0), _eqosm(0),
 		_cqm(0), _mtbl(0), _timer(this), _seq(0), _period(5000), _debug(false) {
 }
 
@@ -89,7 +89,7 @@ int EmpowerLVAPManager::configure(Vector<String> &conf,
 			                    .read_m("RCS", rcs_strings)
 			                    .read_m("RES", res_strings)
 			                    .read_m("ERS", ElementCastArg("EmpowerRXStats"), _ers)
-								.read_m("EQOSS", ElementCastArg("EmpowerQoSScheduler"), _eqoss)
+								.read_m("EQOSM", ElementCastArg("EmpowerQoSManager"), _eqosm)
 			                    .read("CQM", ElementCastArg("EmpowerCQM"), _cqm)
 								.read("MTBL", ElementCastArg("EmpowerMulticastTable"), _mtbl)
 								.read("PERIOD", _period)
@@ -1131,7 +1131,7 @@ void EmpowerLVAPManager::send_caps() {
 void EmpowerLVAPManager:: send_status_traffic_rule(uint8_t dscp, String tenant) {
 
 
-	BufferQueue * tr_queue = _eqoss->get_traffic_rule(dscp, tenant);
+	BufferQueue * tr_queue = _eqosm->get_traffic_rule(dscp, tenant);
 
 	int len = sizeof(empower_status_traffic_rule) + tenant.length();
 
@@ -1160,6 +1160,8 @@ void EmpowerLVAPManager:: send_status_traffic_rule(uint8_t dscp, String tenant) 
 		status->set_aggregation_flags(EMPOWER_AMSDU_AGGREGATION);
 	if (tr_queue->_ampdu_aggregation)
 		status->set_aggregation_flags(EMPOWER_AMPDU_AGGREGATION);
+	if (tr_queue->_deadline_discard)
+		status->set_aggregation_flags(EMPOWER_DEADLINE_DISCARD);
 
 	send_message(p);
 }
@@ -1902,15 +1904,16 @@ int EmpowerLVAPManager::handle_add_traffic_rule(Packet *p, uint32_t offset) {
 	int parent_priority = add_traffic_rule->parent_priority();
 	bool amsdu_aggregation = add_traffic_rule->aggregation_flags(EMPOWER_AMSDU_AGGREGATION);
 	bool ampdu_aggregation = add_traffic_rule->aggregation_flags(EMPOWER_AMPDU_AGGREGATION);
+	bool deadline_discard = add_traffic_rule->aggregation_flags(EMPOWER_DEADLINE_DISCARD);
 
 	// message to the scheduler element to add a new queue
-	_eqoss->request_traffic_rule(dscp, ssid, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation);
+	_eqosm->request_traffic_rule(dscp, ssid, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation, deadline_discard);
 	return 0;
 }
 
 int EmpowerLVAPManager::handle_traffic_rule_status_request(Packet *p, uint32_t offset) {
 	// send Traffic Rule status update messages
-	for (TrafficRulesQueuesIter it = _eqoss->get_traffic_rules()->begin(); it.live(); it++) {
+	for (TrafficRulesQueuesIter it = _eqosm->get_traffic_rules()->begin(); it.live(); it++) {
 		send_status_traffic_rule(it.key()._dscp, it.key()._tenant);
 	}
 	return 0;
@@ -2346,8 +2349,13 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 		int parent_priority;
 		bool amsdu_aggregation;
 		bool ampdu_aggregation;
+		bool deadline_discard;
 
-		f->_eqoss->get_traffic_rules_lock().acquire_write();
+			// message to the scheduler element to add a new queue
+			_eqosm->request_traffic_rule(dscp, ssid, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation, deadline_discard);
+
+
+		f->_eqosm->get_traffic_rules_lock().acquire_write();
 
 		if (!IntArg().parse(tokens[0], dscp)) {
 			return errh->error("error param %s: must start with an int", tokens[0].c_str());
@@ -2377,10 +2385,14 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 			return errh->error("error param %s: must start with a boolean value", tokens[6].c_str());
 		}
 
+		if (!BoolArg().parse(tokens[7], deadline_discard)) {
+			return errh->error("error param %s: must start with a boolean value", tokens[7].c_str());
+		}
+
 		empower_tenant_types tenant_type = (empower_tenant_types) tenant_t;
 
-		f->_eqoss->request_traffic_rule(dscp, tenant, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation);
-		f->_eqoss->get_traffic_rules_lock().release_write();
+		f->_eqosm->request_traffic_rule(dscp, tenant, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation, deadline_discard);
+		f->_eqosm->get_traffic_rules_lock().release_write();
 		break;
 	}
 	}

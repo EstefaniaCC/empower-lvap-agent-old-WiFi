@@ -1,12 +1,12 @@
 /*
- * empowerqosscheduler.hh
+ * EmpowerQoSManager.hh
  *
  *  Created on: Oct 30, 2017
  *      Author: Estefania Coronado
  */
 
-#ifndef CLICK_EMPOWER_EMPOWERQOSSCHEDULER_HH_
-#define CLICK_EMPOWER_EMPOWERQOSSCHEDULER_HH_
+#ifndef CLICK_EMPOWER_EMPOWERQOSMANAGER_HH_
+#define CLICK_EMPOWER_EMPOWERQOSMANAGER_HH_
 #include <click/config.h>
 #include <click/element.hh>
 #include <click/timer.hh>
@@ -97,6 +97,7 @@ public:
 	int _parent_priority;
 	bool _amsdu_aggregation;
 	bool _ampdu_aggregation;
+	bool _deadline_discard;
 	int _max_delay;
 	int _max_length;
 	int _deficit;
@@ -114,9 +115,9 @@ public:
 	ReadWriteLock _buffer_queue_lock;
 
 	BufferQueue(empower_tenant_types tenant_type, uint8_t priority, uint8_t parent_priority, bool amsdu_aggregation,
-			bool ampdu_aggregation, uint8_t max_delay):
+			bool ampdu_aggregation, bool deadline_discard, uint8_t max_delay):
 		_tenant_type(tenant_type), _priority(priority), _parent_priority(parent_priority), _amsdu_aggregation(amsdu_aggregation),
-		_ampdu_aggregation(ampdu_aggregation), _max_delay(max_delay){
+		_ampdu_aggregation(ampdu_aggregation), _deadline_discard(deadline_discard), _max_delay(max_delay){
 		_max_length = 7935;
 		_deficit = 0;
 		_quantum = 1000;
@@ -198,12 +199,12 @@ inline bool operator==(const BufferQueueInfo &a, const BufferQueueInfo &b) {
 typedef HashTable <BufferQueueInfo, BufferQueue *> TrafficRulesQueues;
 typedef TrafficRulesQueues::iterator TrafficRulesQueuesIter;
 
-class EmpowerQoSScheduler : public SimpleQueue { public:
+class EmpowerQoSManager : public SimpleQueue { public:
 
-	EmpowerQoSScheduler();
-    ~EmpowerQoSScheduler();
+	EmpowerQoSManager();
+    ~EmpowerQoSManager();
 
-    const char* class_name() const		{ return "EmpowerQoSScheduler"; }
+    const char* class_name() const		{ return "EmpowerQoSManager"; }
     const char *port_count() const		{ return PORTS_1_1; }
     const char* processing() const		{ return PUSH_TO_PULL; }
     void *cast(const char *);
@@ -222,7 +223,7 @@ class EmpowerQoSScheduler : public SimpleQueue { public:
 
     TrafficRulesQueues* get_traffic_rules() { return &_traffic_rules; }
     String list_traffic_rules();
-    void request_traffic_rule(int, String, empower_tenant_types, int, int, bool, bool);
+    void request_traffic_rule(int, String, empower_tenant_types, int, int, bool, bool, bool);
     void release_traffic_rule(int, String);
     void remove_traffic_rule_resources(int, String);
     int frame_transmission_time(EtherAddress, int);

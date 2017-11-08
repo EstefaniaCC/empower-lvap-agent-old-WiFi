@@ -1,5 +1,5 @@
 /*
- * empowerqosscheduler.cc
+ * EmpowerQoSManager.cc
  *
  *  Created on: Oct 30, 2017
  *      Author: Estefania Coronado
@@ -18,17 +18,17 @@
 #include <clicknet/ip.h>
 #include <elements/wifi/bitrate.hh>
 #include <algorithm>
-#include "empowerqosscheduler.hh"
+#include "empowerqosmanager.hh"
 CLICK_DECLS
 
-EmpowerQoSScheduler::EmpowerQoSScheduler() :
+EmpowerQoSManager::EmpowerQoSManager() :
 	_el(0), _debug(false) {
 }
 
-EmpowerQoSScheduler::~EmpowerQoSScheduler() {
+EmpowerQoSManager::~EmpowerQoSManager() {
 }
 
-int EmpowerQoSScheduler::configure(Vector<String> &conf,
+int EmpowerQoSManager::configure(Vector<String> &conf,
 		ErrorHandler *errh) {
 
 	_notifier.initialize(Notifier::EMPTY_NOTIFIER, router());
@@ -41,7 +41,7 @@ int EmpowerQoSScheduler::configure(Vector<String> &conf,
 }
 
 void *
-EmpowerQoSScheduler::cast(const char *n)
+EmpowerQoSManager::cast(const char *n)
 {
     if (strcmp(n, Notifier::EMPTY_NOTIFIER) == 0)
     	return static_cast<Notifier *>(&_notifier);
@@ -49,7 +49,7 @@ EmpowerQoSScheduler::cast(const char *n)
     	return Element::cast(n);
 }
 
-int EmpowerQoSScheduler::initialize(ErrorHandler *) {
+int EmpowerQoSManager::initialize(ErrorHandler *) {
 	_drops = 0;
 	_bdrops = 0;
 	_sleepiness = 0;
@@ -62,7 +62,7 @@ int EmpowerQoSScheduler::initialize(ErrorHandler *) {
 }
 
 void
-EmpowerQoSScheduler::push(int, Packet *p) {
+EmpowerQoSManager::push(int, Packet *p) {
 	const click_ip *ip = p->ip_header();
 	int dscp = (int)ip->ip_tos >> 2;
 
@@ -281,7 +281,7 @@ EmpowerQoSScheduler::push(int, Packet *p) {
 }
 
 void
-EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queue, Packet * p, EtherAddress bssid, int iface) {
+EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queue, Packet * p, EtherAddress bssid, int iface) {
 	if (_current_frame_clients.find(dst) == _current_frame_clients.end()) {
 		FrameInfo * new_frame = new FrameInfo();
 		new_frame->_frame = p->uniqueify();
@@ -347,13 +347,14 @@ EmpowerQoSScheduler::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_qu
 	}
 	// Check if it can wait for the next frame to complete this one
 	int transm_time = frame_transmission_time(dst, current_frame->_frame_length);
-	if ((Timestamp::make_usec(transm_time) + current_frame->_average_time_diff) > Timestamp::make_usec(tr_queue->_max_delay)) {
+	if (tr_queue->_deadline_discard &&
+			((Timestamp::make_usec(transm_time) + current_frame->_average_time_diff) > Timestamp::make_usec(tr_queue->_max_delay))) {
 		current_frame->_complete = true;
 	}
 }
 
 Packet *
-EmpowerQoSScheduler::pull(int) {
+EmpowerQoSManager::pull(int) {
 	bool delivered_packet = false;
 
 	if (_traffic_rules.size() == _empty_traffic_rules) {
@@ -380,7 +381,8 @@ EmpowerQoSScheduler::pull(int) {
 			// If the transmission time + the time that the frame has been in the queue exceeds the delay deadline
 			// this frame is discarded
 			int transm_time = frame_transmission_time(next_frame->_dst, next_frame->_frame_length);
-			if (!tr_queue->check_delay_deadline(next_frame, transm_time)) {
+			if (!tr_queue->_deadline_discard ||
+					(tr_queue->_deadline_discard && !tr_queue->check_delay_deadline(next_frame, transm_time))) {
 				// If it is the first time of this queue and it is not empty, a new deficit must be assigned
 				if (tr_queue->_first_pkt) {
 					// TODO. compute quantum
@@ -435,7 +437,7 @@ EmpowerQoSScheduler::pull(int) {
 }
 
 int
-EmpowerQoSScheduler::frame_transmission_time(EtherAddress next_delireved_client, int pkt_length) {
+EmpowerQoSManager::frame_transmission_time(EtherAddress next_delireved_client, int pkt_length) {
 	MinstrelDstInfo * nfo = _el->get_dst_info(next_delireved_client);
 	EmpowerStationState *ess = _el->lvaps()->get_pointer(next_delireved_client);
 	TxPolicyInfo * tx_policy = _el->get_tx_policies(ess->_iface_id)->lookup(next_delireved_client);
@@ -471,7 +473,7 @@ EmpowerQoSScheduler::frame_transmission_time(EtherAddress next_delireved_client,
 }
 
 String
-EmpowerQoSScheduler::list_traffic_rules() {
+EmpowerQoSManager::list_traffic_rules() {
 	StringAccum sa;
 	for (TrafficRulesQueuesIter it =_traffic_rules.begin(); it.live(); it++) {
 		sa << "Tenant ";
@@ -526,8 +528,8 @@ EmpowerQoSScheduler::list_traffic_rules() {
 }
 
 void
-EmpowerQoSScheduler::request_traffic_rule(int dscp, String tenant, empower_tenant_types tenant_type, int priority,
-		int parent_priority, bool amsdu_aggregation, bool ampdu_aggregation) {
+EmpowerQoSManager::request_traffic_rule(int dscp, String tenant, empower_tenant_types tenant_type, int priority,
+		int parent_priority, bool amsdu_aggregation, bool ampdu_aggregation, bool deadline_discard) {
 
 	BufferQueueInfo queue_info(dscp, tenant);
 
@@ -536,7 +538,8 @@ EmpowerQoSScheduler::request_traffic_rule(int dscp, String tenant, empower_tenan
 	if (_traffic_rules.find(queue_info) == _traffic_rules.end()) {
 		// TODO. Decide how to set the priority and parent_priority
 		int max_delay = map_dscp_to_delay(dscp);
-		BufferQueue * tr_queue = new BufferQueue (tenant_type, priority, parent_priority, max_delay, amsdu_aggregation, ampdu_aggregation);
+		BufferQueue * tr_queue = new BufferQueue (tenant_type, priority, parent_priority, max_delay,
+				amsdu_aggregation, ampdu_aggregation, deadline_discard);
 		_traffic_rules.set(queue_info, tr_queue);
 
 		_rr_order.push_back(queue_info);
@@ -547,14 +550,14 @@ EmpowerQoSScheduler::request_traffic_rule(int dscp, String tenant, empower_tenan
 }
 
 void
-EmpowerQoSScheduler::remove_traffic_rule_resources(int dscp, String tenant) {
+EmpowerQoSManager::remove_traffic_rule_resources(int dscp, String tenant) {
 	int tenant_air_time_portion = 0;
 
 
 }
 
 void
-EmpowerQoSScheduler::release_traffic_rule(int dscp, String tenant) {
+EmpowerQoSManager::release_traffic_rule(int dscp, String tenant) {
 	BufferQueueInfo tr_key (dscp, tenant);
 	BufferQueue * tr_queue = get_traffic_rule(dscp, tenant);
 
@@ -607,7 +610,7 @@ EmpowerQoSScheduler::release_traffic_rule(int dscp, String tenant) {
 }
 
 Packet *
-EmpowerQoSScheduler::empower_wifi_encap(FrameInfo * next_frame) {
+EmpowerQoSManager::empower_wifi_encap(FrameInfo * next_frame) {
 	Packet *p = (Packet *) next_frame->_frame;
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress src = EtherAddress(eh->ether_shost);
@@ -658,7 +661,7 @@ EmpowerQoSScheduler::empower_wifi_encap(FrameInfo * next_frame) {
 }
 
 Packet *
-EmpowerQoSScheduler::wifi_encap(Packet *q, EtherAddress dst, EtherAddress src, EtherAddress bssid) {
+EmpowerQoSManager::wifi_encap(Packet *q, EtherAddress dst, EtherAddress src, EtherAddress bssid) {
 
     WritablePacket *p_out = q->uniqueify();
 
@@ -703,7 +706,7 @@ EmpowerQoSScheduler::wifi_encap(Packet *q, EtherAddress dst, EtherAddress src, E
 }
 
 int
-EmpowerQoSScheduler::map_dscp_to_delay(int dscp) {
+EmpowerQoSManager::map_dscp_to_delay(int dscp) {
 	int delay = 5000;
 
 	switch (dscp) {
@@ -748,7 +751,7 @@ enum { H_DROPS,
 };
 
 void
-EmpowerQoSScheduler::add_handlers()
+EmpowerQoSManager::add_handlers()
 {
 	add_read_handler("drops", read_handler, (void*)H_DROPS);
 	add_read_handler("byte_drops", read_handler, (void*)H_BYTEDROPS);
@@ -756,10 +759,10 @@ EmpowerQoSScheduler::add_handlers()
 	add_write_handler("debug", write_handler, (void *) H_DEBUG);
 }
 
-int EmpowerQoSScheduler::write_handler(const String &in_s, Element *e,
+int EmpowerQoSManager::write_handler(const String &in_s, Element *e,
 		void *vparam, ErrorHandler *errh) {
 
-	EmpowerQoSScheduler *f = (EmpowerQoSScheduler *) e;
+	EmpowerQoSManager *f = (EmpowerQoSManager *) e;
 	String s = cp_uncomment(in_s);
 
 	switch ((intptr_t) vparam) {
@@ -775,9 +778,9 @@ int EmpowerQoSScheduler::write_handler(const String &in_s, Element *e,
 }
 
 String
-EmpowerQoSScheduler::read_handler(Element *e, void *thunk)
+EmpowerQoSManager::read_handler(Element *e, void *thunk)
 {
-	EmpowerQoSScheduler *c = (EmpowerQoSScheduler *)e;
+	EmpowerQoSManager *c = (EmpowerQoSManager *)e;
 	switch ((intptr_t)thunk) {
 	case H_DEBUG:
 		return String(c->_debug) + "\n";
@@ -793,4 +796,4 @@ EmpowerQoSScheduler::read_handler(Element *e, void *thunk)
 }
 
 CLICK_ENDDECLS
-EXPORT_ELEMENT(EmpowerQoSScheduler)
+EXPORT_ELEMENT(EmpowerQoSManager)

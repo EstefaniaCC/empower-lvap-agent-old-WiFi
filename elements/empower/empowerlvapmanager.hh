@@ -88,6 +88,7 @@ enum empower_tenant_types {
 enum empower_aggregation_flags {
 	EMPOWER_AMSDU_AGGREGATION = (1<<0),
 	EMPOWER_AMPDU_AGGREGATION = (1<<1),
+    EMPOWER_DEADLINE_DISCARD = (1<<2)
 };
 
 typedef HashTable<uint16_t, uint32_t> CBytes;
@@ -376,7 +377,7 @@ private:
 	class EmpowerRXStats *_ers;
 	class EmpowerCQM *_cqm;
 	class EmpowerMulticastTable * _mtbl;
-	class EmpowerQoSScheduler * _eqoss;
+	class EmpowerQoSManager * _eqosm;
 
 	LVAP _lvaps;
 	Ports _ports;
