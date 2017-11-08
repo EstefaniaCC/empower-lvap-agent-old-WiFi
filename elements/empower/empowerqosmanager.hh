@@ -263,7 +263,7 @@ class EmpowerQoSManager : public SimpleQueue { public:
     int _system_quantum;
     int _drops;
     int _bdrops;
-    int _empty_traffic_rules;
+    unsigned int _empty_traffic_rules;
     bool _debug;
 
     int compute_deficit(Packet*);

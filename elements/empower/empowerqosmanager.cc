@@ -133,7 +133,7 @@ EmpowerQoSManager::push(int, Packet *p) {
 			// If the queue is not defined even with the default dscp, it means that a new queue must be added for this tenant
 			if (!tr_queue) {
 				empower_tenant_types tenant_type = ((ess->_lvap_bssid == ess->_net_bssid) ? EMPOWER_TYPE_UNIQUE : EMPOWER_TYPE_SHARED);
-				request_traffic_rule(dscp, ssid, tenant_type, 100, 0, false, false); // parent_priority must be set by the controller
+				request_traffic_rule(dscp, ssid, tenant_type, 100, 100, false, false, false); // parent_priority must be set by the controller
 				// TODO. Send message to the controller to register it.
 			}
 		}
