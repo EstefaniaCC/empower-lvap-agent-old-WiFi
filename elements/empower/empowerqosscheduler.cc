@@ -780,7 +780,7 @@ EmpowerQoSScheduler::read_handler(Element *e, void *thunk)
 	EmpowerQoSScheduler *c = (EmpowerQoSScheduler *)e;
 	switch ((intptr_t)thunk) {
 	case H_DEBUG:
-		return String(td->_debug) + "\n";
+		return String(c->_debug) + "\n";
 	case H_DROPS:
 		return(String(c->drops()) + "\n");
 	case H_BYTEDROPS:
