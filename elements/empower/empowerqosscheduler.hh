@@ -43,7 +43,7 @@ public:
 		_average_time_diff = Timestamp::now(); // It should be the time needed to transmit this frame
 		_frame_length = 0;
 		_msdus = 1;
-		_frame = WritablePacket();
+		_frame = 0;
 		_dst = EtherAddress();
 		_bssid = EtherAddress();
 		_iface = -1;
@@ -141,6 +141,7 @@ public:
 		_buffer_queue_lock.acquire_write();
 		FrameInfo * next_frame = _frames.front();
 		_buffer_queue_lock.release_write();
+		return next_frame;
 	}
 
 	Packet* get_next_packet() {

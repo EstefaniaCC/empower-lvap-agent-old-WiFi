@@ -2347,7 +2347,6 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 		bool amsdu_aggregation;
 		bool ampdu_aggregation;
 
-		TrafficRulesQueues* slices = f->_eqoss->get_traffic_rules();
 		f->_eqoss->get_traffic_rules_lock().acquire_write();
 
 		if (!IntArg().parse(tokens[0], dscp)) {
