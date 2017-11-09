@@ -309,7 +309,7 @@ public:
 	void send_igmp_report(EtherAddress, Vector<IPAddress>*, Vector<enum empower_igmp_record_type>*);
 	void send_cqm_links_response(uint32_t);
 	void send_add_del_lvap_response(uint8_t, EtherAddress, uint32_t, uint32_t);
-	void send_status_traffic_rule(uint8_t, String);
+	void send_status_traffic_rule(int, String, int);
 
 	int remove_lvap(EmpowerStationState *);
 	LVAP* lvaps() { return &_lvaps; }
@@ -354,6 +354,11 @@ public:
 		Minstrel * rc = _rcs[iface_id];
 		return rc->tx_policies();
 	}
+//
+//	TrafficRulesQueues * get_traffic_rules(int iface_id) {
+//		EmpowerQoSManager * qm = _eqosm[iface_id];
+//		return qm->get_traffic_rules();
+//	}
 
 	MinstrelDstInfo * get_dst_info(EtherAddress sta) {
 		EmpowerStationState *ess = _lvaps.get_pointer(sta);
@@ -377,13 +382,14 @@ private:
 	class EmpowerRXStats *_ers;
 	class EmpowerCQM *_cqm;
 	class EmpowerMulticastTable * _mtbl;
-	class EmpowerQoSManager * _eqosm;
+//	class EmpowerQoSManager * _eqosm;
 
 	LVAP _lvaps;
 	Ports _ports;
 	VAP _vaps;
 	Vector<EtherAddress> _masks;
 	Vector<Minstrel *> _rcs;
+	Vector<class EmpowerQoSManager *> _eqosm;
 	Vector<String> _debugfs_strings;
 	Timer _timer;
 	uint32_t _seq;

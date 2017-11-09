@@ -37,7 +37,7 @@
 CLICK_DECLS
 
 EmpowerLVAPManager::EmpowerLVAPManager() :
-		_e11k(0), _ebs(0), _eauthr(0), _eassor(0), _edeauthr(0), _ers(0), _eqosm(0),
+		_e11k(0), _ebs(0), _eauthr(0), _eassor(0), _edeauthr(0), _ers(0),
 		_cqm(0), _mtbl(0), _timer(this), _seq(0), _period(5000), _debug(false) {
 }
 
@@ -78,6 +78,7 @@ int EmpowerLVAPManager::configure(Vector<String> &conf,
 	String debugfs_strings;
 	String rcs_strings;
 	String res_strings;
+	String eqosm_strings;
 
 	res = Args(conf, this, errh).read_m("WTP", _wtp)
 						        .read_m("E11K", ElementCastArg("Empower11k"), _e11k)
@@ -88,8 +89,8 @@ int EmpowerLVAPManager::configure(Vector<String> &conf,
 			                    .read_m("DEBUGFS", debugfs_strings)
 			                    .read_m("RCS", rcs_strings)
 			                    .read_m("RES", res_strings)
+								.read_m("EQOSM", eqosm_strings)
 			                    .read_m("ERS", ElementCastArg("EmpowerRXStats"), _ers)
-								.read_m("EQOSM", ElementCastArg("EmpowerQoSManager"), _eqosm)
 			                    .read("CQM", ElementCastArg("EmpowerCQM"), _cqm)
 								.read("MTBL", ElementCastArg("EmpowerMulticastTable"), _mtbl)
 								.read("PERIOD", _period)
@@ -148,6 +149,21 @@ int EmpowerLVAPManager::configure(Vector<String> &conf,
 		ResourceElement *elm = new ResourceElement(hwaddr, channel, band);
 		_ifaces_to_elements.set(x, elm);
 
+	}
+
+	tokens.clear();
+	cp_spacevec(eqosm_strings, tokens);
+
+	for (int i = 0; i < tokens.size(); i++) {
+		EmpowerQoSManager * qm;
+		if (!ElementCastArg("EmpowerQoSManager").parse(tokens[i], qm, Args(conf, this, errh))) {
+			return errh->error("error param %s: must be a EmpowerQoSManager element", tokens[i].c_str());
+		}
+		_eqosm.push_back(qm);
+	}
+
+	if (_eqosm.size() != _masks.size()) {
+		return errh->error("eqosm has %u values, while masks has %u values", _eqosm.size(), _masks.size());
 	}
 
 	return res;
@@ -1128,10 +1144,9 @@ void EmpowerLVAPManager::send_caps() {
 
 }
 
-void EmpowerLVAPManager:: send_status_traffic_rule(uint8_t dscp, String tenant) {
+void EmpowerLVAPManager:: send_status_traffic_rule(int dscp, String tenant, int iface) {
 
-
-	BufferQueue * tr_queue = _eqosm->get_traffic_rule(dscp, tenant);
+	BufferQueue * tr_queue = _eqosm[iface]->get_traffic_rule(dscp, tenant);
 
 	int len = sizeof(empower_status_traffic_rule) + tenant.length();
 
@@ -1906,15 +1921,22 @@ int EmpowerLVAPManager::handle_add_traffic_rule(Packet *p, uint32_t offset) {
 	bool ampdu_aggregation = add_traffic_rule->aggregation_flags(EMPOWER_AMPDU_AGGREGATION);
 	bool deadline_discard = add_traffic_rule->aggregation_flags(EMPOWER_DEADLINE_DISCARD);
 
-	// message to the scheduler element to add a new queue
-	_eqosm->request_traffic_rule(dscp, ssid, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation, deadline_discard);
+	// A new queue is created for each interface
+	for (REIter it_re = _ifaces_to_elements.begin(); it_re.live(); it_re++) {
+		int iface_id = it_re.key();
+		// message to the scheduler element to add a new queue
+		_eqosm[iface_id]->request_traffic_rule(dscp, ssid, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation, deadline_discard);
+	}
 	return 0;
 }
 
 int EmpowerLVAPManager::handle_traffic_rule_status_request(Packet *p, uint32_t offset) {
 	// send Traffic Rule status update messages
-	for (TrafficRulesQueuesIter it = _eqosm->get_traffic_rules()->begin(); it.live(); it++) {
-		send_status_traffic_rule(it.key()._dscp, it.key()._tenant);
+	for (REIter it_re = _ifaces_to_elements.begin(); it_re.live(); it_re++) {
+		int iface_id = it_re.key();
+		for (TrafficRulesQueuesIter it = _eqosm[iface_id]->get_traffic_rules()->begin(); it.live(); it++) {
+			send_status_traffic_rule(it.key()._dscp, it.key()._tenant, iface_id);
+		}
 	}
 	return 0;
 }
@@ -2339,9 +2361,10 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 		Vector<String> tokens;
 		cp_spacevec(s, tokens);
 
-		if (tokens.size() != 7)
-			return errh->error("Setting a new network slice needs 7 parameters");
+		if (tokens.size() != 8)
+			return errh->error("Setting a new network slice needs 8 parameters");
 
+		int iface;
 		int dscp;
 		String tenant;
 		int tenant_t;
@@ -2351,44 +2374,48 @@ int EmpowerLVAPManager::write_handler(const String &in_s, Element *e,
 		bool ampdu_aggregation;
 		bool deadline_discard;
 
-		f->_eqosm->get_traffic_rules_lock().acquire_write();
-
 		if (!IntArg().parse(tokens[0], dscp)) {
 			return errh->error("error param %s: must start with an int", tokens[0].c_str());
 		}
 
-		if (!StringArg().parse(tokens[1], tenant)) {
-			return errh->error("error param %s: must start with a String", tokens[1].c_str());
+		f->_eqosm[iface]->get_traffic_rules_lock().acquire_write();
+
+		if (!IntArg().parse(tokens[1], dscp)) {
+			return errh->error("error param %s: must start with an int", tokens[1].c_str());
 		}
 
-		if (!IntArg().parse(tokens[2], tenant_t)) {
-			return errh->error("error param %s: must start with an int", tokens[2].c_str());
+		if (!StringArg().parse(tokens[2], tenant)) {
+			return errh->error("error param %s: must start with a String", tokens[2].c_str());
 		}
 
-		if (!IntArg().parse(tokens[3], priority)) {
+		if (!IntArg().parse(tokens[3], tenant_t)) {
 			return errh->error("error param %s: must start with an int", tokens[3].c_str());
 		}
 
-		if (!IntArg().parse(tokens[4], parent_priority)) {
+		if (!IntArg().parse(tokens[4], priority)) {
 			return errh->error("error param %s: must start with an int", tokens[4].c_str());
 		}
 
-		if (!BoolArg().parse(tokens[5], amsdu_aggregation)) {
-			return errh->error("error param %s: must start with a boolean value", tokens[5].c_str());
+		if (!IntArg().parse(tokens[5], parent_priority)) {
+			return errh->error("error param %s: must start with an int", tokens[5].c_str());
 		}
 
-		if (!BoolArg().parse(tokens[6], ampdu_aggregation)) {
+		if (!BoolArg().parse(tokens[6], amsdu_aggregation)) {
 			return errh->error("error param %s: must start with a boolean value", tokens[6].c_str());
 		}
 
-		if (!BoolArg().parse(tokens[7], deadline_discard)) {
+		if (!BoolArg().parse(tokens[7], ampdu_aggregation)) {
 			return errh->error("error param %s: must start with a boolean value", tokens[7].c_str());
+		}
+
+		if (!BoolArg().parse(tokens[8], deadline_discard)) {
+			return errh->error("error param %s: must start with a boolean value", tokens[8].c_str());
 		}
 
 		empower_tenant_types tenant_type = (empower_tenant_types) tenant_t;
 
-		f->_eqosm->request_traffic_rule(dscp, tenant, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation, deadline_discard);
-		f->_eqosm->get_traffic_rules_lock().release_write();
+		f->_eqosm[iface]->request_traffic_rule(dscp, tenant, tenant_type, priority, parent_priority, amsdu_aggregation, ampdu_aggregation, deadline_discard);
+		f->_eqosm[iface]->get_traffic_rules_lock().release_write();
 		break;
 	}
 	}

@@ -220,8 +220,8 @@ class EmpowerQoSManager : public SimpleQueue { public:
     int drops() { return(_drops); }
     int bdrops() { return(_bdrops); }
     int system_quantum() { return(_system_quantum); }
-
     TrafficRulesQueues* get_traffic_rules() { return &_traffic_rules; }
+
     String list_traffic_rules();
     void request_traffic_rule(int, String, empower_tenant_types, int, int, bool, bool, bool);
     void release_traffic_rule(int, String);
