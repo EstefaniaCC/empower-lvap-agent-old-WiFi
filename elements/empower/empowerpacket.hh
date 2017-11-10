@@ -920,14 +920,14 @@ struct empower_del_mcast_receiver : public empower_header {
 } CLICK_SIZE_PACKED_ATTRIBUTE;
 
 struct empower_add_traffic_rule : public empower_header {
-private:
+  private:
+	uint16_t	_aggregation_flags;	/* Aggregation flags */
+	uint8_t 	_priority;			/* Priority of the slice (int) */
+	uint8_t 	_parent_priority;	/* Priority of the tenant (without considering types of traffic) (int) */
     uint8_t 	_dscp;				/* Traffic DSCP (int) */
-    char    	_ssid[];			/* SSID (String) */
     uint8_t		_tenant_type;		/* Tenant type (Shared or unique) (empower_tenant_types) */
-    uint8_t 	_priority;			/* Priority of the slice (int) */
-    uint8_t 	_parent_priority;	/* Priority of the tenant (without considering types of traffic) (int) */
-    uint16_t	_aggregation_flags;	/* Aggregation flags */
-public:
+    char    	_ssid[];			/* SSID (String) */
+  public:
     uint8_t      dscp()						{ return _dscp; }
     uint8_t      tenant_type()				{ return _tenant_type; }
     uint8_t      priority()					{ return _priority; }
@@ -938,15 +938,15 @@ public:
 
 /* traffic rule status packet format */
 struct empower_status_traffic_rule : public empower_header {
-private:
+  private:
     uint8_t 	_wtp[6];			/* EtherAddress */
-    uint8_t 	_dscp;				/* Traffic DSCP (int) */
-	char    	_ssid[];			/* SSID (String) */
-	uint8_t		_tenant_type;		/* Tenant type (Shared or unique) (empower_tenant_types) */
+	uint16_t	_aggregation_flags;	/* Aggregation flags */
 	uint8_t 	_priority;			/* Priority of the slice (int) */
 	uint8_t 	_parent_priority;	/* Priority of the tenant (without considering types of traffic) (int) */
-	uint16_t	_aggregation_flags;	/* Aggregation flags */
-public:
+    uint8_t 	_dscp;				/* Traffic DSCP (int) */
+    uint8_t		_tenant_type;		/* Tenant type (Shared or unique) (empower_tenant_types) */
+    char    	_ssid[];			/* SSID (String) */
+  public:
 	void set_wtp(EtherAddress wtp)         				{ memcpy(_wtp, wtp.data(), 6); }
     void set_dscp(uint8_t dscp)      					{ _dscp = dscp; }
     void set_tenant_type(uint8_t tenant_type)			{ _tenant_type = tenant_type; }

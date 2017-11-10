@@ -476,13 +476,13 @@ String
 EmpowerQoSManager::list_traffic_rules() {
 	StringAccum sa;
 	for (TrafficRulesQueuesIter it =_traffic_rules.begin(); it.live(); it++) {
-		sa << "Tenant ";
-		sa << it.key()._tenant;
 		if (it.value()->_tenant_type == EMPOWER_TYPE_SHARED) {
-			sa << " Shared";
+			sa << "Shared";
 		} else {
-			sa << " Unique";
+			sa << "Unique";
 		}
+		sa << " tenant ";
+		sa << it.key()._tenant;
 		sa << " dscp ";
 		sa << it.key()._dscp;
 		sa << " parent priority ";
@@ -490,19 +490,19 @@ EmpowerQoSManager::list_traffic_rules() {
 		sa << " priority ";
 		sa << it.value()->_priority;
 		if (it.value()->_amsdu_aggregation) {
-			sa << " A-MSDU Aggr.";
+			sa << " A-MSDU aggr.";
 		} else {
-			sa << " Non A-MSDU Aggr.";
+			sa << " Non A-MSDU aggr.";
 		}
 		if (it.value()->_ampdu_aggregation) {
-			sa << " A-MPDU Aggr.";
+			sa << " A-MPDU aggr.";
 		} else {
-			sa << " Non A-MPDU Aggr.";
+			sa << " Non A-MPDU aggr.";
 		}
 		if (it.value()->_deadline_discard) {
 			sa << " Deadline drop";
 		} else {
-			sa << " Non Deadline drop";
+			sa << " Non deadline drop";
 		}
 		sa << " max. delay ";
 		sa << it.value()->_max_delay;

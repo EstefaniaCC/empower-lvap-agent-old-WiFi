@@ -2046,6 +2046,9 @@ void EmpowerLVAPManager::push(int, Packet *p) {
 		case EMPOWER_PT_ADD_TRAFFIC_RULE:
 			handle_add_traffic_rule(p, offset);
 			break;
+		case EMPOWER_PT_TRAFFIC_RULE_STATUS_REQUEST:
+			handle_traffic_rule_status_request(p, offset);
+			break;
 		default:
 			click_chatter("%{element} :: %s :: Unknown packet type: %d",
 					      this,
