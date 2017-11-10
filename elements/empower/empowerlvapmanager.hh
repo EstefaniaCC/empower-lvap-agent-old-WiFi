@@ -361,8 +361,11 @@ public:
 //	}
 
 	MinstrelDstInfo * get_dst_info(EtherAddress sta) {
+		MinstrelDstInfo * nfo;
 		EmpowerStationState *ess = _lvaps.get_pointer(sta);
-		MinstrelDstInfo * nfo = _rcs.at(ess->_iface_id)->neighbors()->findp(sta);
+		if (ess) {
+			nfo = _rcs.at(ess->_iface_id)->neighbors()->findp(sta);
+		}
 		return nfo;
 	}
 

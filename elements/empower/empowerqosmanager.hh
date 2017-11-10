@@ -70,6 +70,11 @@ public:
 			_dscp(dscp), _tenant(tenant){
 		}
 
+	BufferQueueInfo(){
+		_dscp = -1;
+		_tenant = "";
+	}
+
 	~BufferQueueInfo() {
 	}
 
@@ -114,10 +119,10 @@ public:
 
 	ReadWriteLock _buffer_queue_lock;
 
-	BufferQueue(empower_tenant_types tenant_type, uint8_t priority, uint8_t parent_priority, bool amsdu_aggregation,
-			bool ampdu_aggregation, bool deadline_discard, uint8_t max_delay):
-		_tenant_type(tenant_type), _priority(priority), _parent_priority(parent_priority), _amsdu_aggregation(amsdu_aggregation),
-		_ampdu_aggregation(ampdu_aggregation), _deadline_discard(deadline_discard), _max_delay(max_delay){
+	BufferQueue(empower_tenant_types tenant_type, uint8_t priority, uint8_t parent_priority, uint8_t max_delay,
+			bool amsdu_aggregation, bool ampdu_aggregation, bool deadline_discard):
+		_tenant_type(tenant_type), _priority(priority), _parent_priority(parent_priority), _max_delay(max_delay),
+		_amsdu_aggregation(amsdu_aggregation), _ampdu_aggregation(ampdu_aggregation), _deadline_discard(deadline_discard){
 		_max_length = 7935;
 		_deficit = 0;
 		_quantum = 1000;
@@ -223,10 +228,12 @@ class EmpowerQoSManager : public SimpleQueue { public:
     TrafficRulesQueues* get_traffic_rules() { return &_traffic_rules; }
 
     String list_traffic_rules();
+    String list_traffic_rule(BufferQueue *);
+    String list_user_frames();
     void request_traffic_rule(int, String, empower_tenant_types, int, int, bool, bool, bool);
     void release_traffic_rule(int, String);
     void remove_traffic_rule_resources(int, String);
-    int frame_transmission_time(EtherAddress, int);
+    int frame_transmission_time(EtherAddress, int, int);
     int map_dscp_to_delay(int);
     void enqueue_unicast_frame(EtherAddress, BufferQueue *, Packet *, EtherAddress, int);
     Packet * empower_wifi_encap(FrameInfo *);
@@ -246,6 +253,16 @@ class EmpowerQoSManager : public SimpleQueue { public:
 		return traffic_queue;
 	}
 
+    BufferQueueInfo  get_traffic_rule_info(BufferQueue * traffic_rule) {
+    	BufferQueueInfo buffer = BufferQueueInfo();
+    	for (TrafficRulesQueuesIter it_tr_queues = _traffic_rules.begin(); it_tr_queues.live(); it_tr_queues++) {
+    		if (it_tr_queues.value() == traffic_rule) {
+    			buffer = it_tr_queues.key();
+    		}
+    	}
+    	return buffer;
+   }
+
   protected:
 
     enum { SLEEPINESS_TRIGGER = 9 };
@@ -255,7 +272,7 @@ class EmpowerQoSManager : public SimpleQueue { public:
     class EmpowerLVAPManager *_el;
 
     TrafficRulesQueues _traffic_rules;
-    UserFrames _current_frame_clients;
+    UserFrames _clients_current_frame;
     Vector <BufferQueueInfo> _rr_order;
     ReadWriteLock _traffic_rules_lock;
 

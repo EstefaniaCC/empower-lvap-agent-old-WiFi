@@ -1921,6 +1921,20 @@ int EmpowerLVAPManager::handle_add_traffic_rule(Packet *p, uint32_t offset) {
 	bool ampdu_aggregation = add_traffic_rule->aggregation_flags(EMPOWER_AMPDU_AGGREGATION);
 	bool deadline_discard = add_traffic_rule->aggregation_flags(EMPOWER_DEADLINE_DISCARD);
 
+	click_chatter("%{element} :: %s :: Adding traffic rule tenant %s dscp %d tenant type %d priority %d"
+			"parent priority %d %s %s %s",
+						  this,
+						  __func__,
+						  ssid.c_str(),
+						  dscp,
+						  tenant_type,
+						  priority,
+					      parent_priority,
+						  amsdu_aggregation ? "A-MSDU aggr." : "no A-MSDU aggr.",
+						  ampdu_aggregation ? "A-MPDU aggr." : "no A-MSDU aggr.",
+						  deadline_discard ? "dealine" : "no deadline");
+
+
 	// A new queue is created for each interface
 	for (REIter it_re = _ifaces_to_elements.begin(); it_re.live(); it_re++) {
 		int iface_id = it_re.key();
