@@ -77,9 +77,6 @@ EmpowerQoSManager::push(int, Packet *p) {
 		return;
 	}
 
-	click_chatter("%{element} :: %s :: Push 2",
-								this, __func__);
-
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress dst = EtherAddress(eh->ether_dhost);
 
@@ -144,13 +141,11 @@ EmpowerQoSManager::push(int, Packet *p) {
 			tr_queue = get_traffic_rule(dscp, ssid);
 
 			// TODO. Add a new queue is the tenant is not there for an incoming packet
-			// What about multicast traffic?
-			// If the queue is not defined even with the default dscp, it means that a new queue must be added for this tenant
-			if (!tr_queue) {
-				empower_tenant_types tenant_type = ((ess->_lvap_bssid == ess->_net_bssid) ? EMPOWER_TYPE_UNIQUE : EMPOWER_TYPE_SHARED);
-				request_traffic_rule(dscp, ssid, tenant_type, 100, 100, false, false, false); // parent_priority must be set by the controller
-				// TODO. Send message to the controller to register it.
-			}
+//			if (!tr_queue) {
+//				empower_tenant_types tenant_type = ((ess->_lvap_bssid == ess->_net_bssid) ? EMPOWER_TYPE_UNIQUE : EMPOWER_TYPE_SHARED);
+//				request_traffic_rule(dscp, ssid, tenant_type, 100, 100, false, false, false); // parent_priority must be set by the controller
+//				// TODO. Send message to the controller to register it.
+//			}
 		}
 
 		enqueue_unicast_frame(dst, tr_queue, p, ess->_lvap_bssid, ess->_iface_id);
@@ -170,17 +165,12 @@ EmpowerQoSManager::push(int, Packet *p) {
 		if (it_tr_queues.key()._dscp != _default_dscp) {
 			continue;
 		}
-		click_chatter("%{element} :: %s :: Multicast 1",
-							this, __func__);
 		Packet *q = p->clone();
 		if (!q) {
 			continue;
 		}
-		click_chatter("%{element} :: %s :: Multicast 2",
-									this, __func__);
+
 		if (it_tr_queues.value()->_tenant_type == EMPOWER_TYPE_UNIQUE) {
-			click_chatter("%{element} :: %s :: Multicast unique",
-										this, __func__);
 			for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
 				if (it.value()._ssid != it_tr_queues.key()._tenant) {
 					continue;
@@ -212,45 +202,20 @@ EmpowerQoSManager::push(int, Packet *p) {
 					unicast_pkt->kill();
 					return;
 				}
-				click_chatter("%{element} :: %s :: Multicast unique 2",
-														this, __func__);
 
-//				click_ether *ethh = unicast_pkt->ether_header();
 				click_ether *ethh = reinterpret_cast<click_ether *>(unicast_pkt->data());
-				click_chatter("%{element} :: %s :: Multicast unique 3",
-														this, __func__);
-				if (ethh) {
-					click_chatter("%{element} :: %s :: Multicast unique 3a exist. ",
-																								this, __func__);
-
-					click_chatter("%{element} :: %s :: Multicast unique 3a exist. sta %s",
-																								this, __func__,
-																								it.value()._sta.unparse().c_str());
-
-					click_chatter("%{element} :: %s :: Multicast unique 3a exist. host %s",
-																			this, __func__,
-																			ethh->ether_dhost);
-				}
-				else
-					click_chatter("%{element} :: %s :: Multicast unique 3b does not exist. ",
-																								this, __func__);
 
 				memcpy(ethh->ether_dhost, it.value()._sta.data(), 6);
-
-				click_chatter("%{element} :: %s :: Multicast unique 4",
-														this, __func__);
 				enqueue_unicast_frame(dst,tr_queue, (Packet *) unicast_pkt, it.value()._lvap_bssid, it.value()._iface_id);
 			}
 		} else {
 			click_chatter("%{element} :: %s :: Multicast shared",
 										this, __func__);
 			// EMPOWER_TYPE_SHARED
-			// TODO. If the tenant is shared... the frame should be duplicated as many as VAPs (as many as bssids)
-			// if the the policy is legacy.
-			// if it is dms... the DA does not change, but the bssid is set to each lvap (so.. as many as lvaps)
+			// If the tenant is shared the frame should be duplicated as many as VAPs (as many as bssids) if the the policy is legacy.
+			// if it is DMS the DA does not change, but the bssid is set to each lvap (as many as lvaps)
 			BufferQueueInfo tr_key (_default_dscp,it_tr_queues.key()._tenant);
 			BufferQueue * tr_queue = get_traffic_rule(_default_dscp,it_tr_queues.key()._tenant);
-//			FrameInfo * new_frame = new FrameInfo();
 
 			for (int i = 0; i < _el->num_ifaces(); i++) {
 				TxPolicyInfo * tx_policy = _el->get_tx_policies(i)->lookup(dst);
@@ -311,9 +276,9 @@ EmpowerQoSManager::push(int, Packet *p) {
 
 					for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
 						// TODO. This should be checked? What about the ARP or similar traffic?
-						if (it.value()._ssid != it_tr_queues.key()._tenant) {
-							continue;
-						}
+//						if (it.value()._ssid != it_tr_queues.key()._tenant) {
+//							continue;
+//						}
 
 						EtherAddress bssid = it.value()._lvap_bssid;
 						if (it.value()._iface_id != i) {
@@ -351,23 +316,27 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 											this, __func__);
 
 	if (_clients_current_frame.find(dst) == _clients_current_frame.end()) {
-		click_chatter("%{element} :: %s :: frame not in clients hashmap",
-												this, __func__);
+		click_chatter("%{element} :: %s :: frame not in clients hashmap dst %s",
+												this, __func__,
+												dst.unparse().c_str());
 		FrameInfo * new_frame = new FrameInfo();
 		new_frame->_frame = p->uniqueify();
 		if (!new_frame->_frame) {
-			click_chatter("%{element} :: %s :: enqueue function no frame",
+			click_chatter("%{element} :: %s :: The frame does not exist",
 													this, __func__);
 			new_frame->_frame->kill();
 			tr_queue->_dropped_packets++;
 			return;
 		}
 		new_frame->_frame_length = new_frame->_frame->length();
+		new_frame->_msdus = 1;
 		new_frame->_dst = dst;
 		new_frame->_bssid = bssid;
 		new_frame->_iface = iface;
-		if (tr_queue->_frames.size() == 0)
+
+		if (tr_queue->_frames.size() == 0) {
 			_empty_traffic_rules--;
+		}
 
 		tr_queue->_buffer_queue_lock.acquire_write();
 		BufferQueueInfo key = get_traffic_rule_info(tr_queue);
@@ -381,79 +350,65 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 																key._dscp,
 																key._tenant.c_str());
 		} else {
-			click_chatter("%{element} :: %s :: no setting point in clients hashmap for dst %s dscp %d tenant %s",
-																			this, __func__,
-																			dst.unparse().c_str(),
-																			key._dscp,
-																			key._tenant.c_str());
 			new_frame->_complete = true;
 		}
-		click_chatter("%{element} :: %s :: enqueue function 3",
-												this, __func__);
+
 		tr_queue->_frames.push_back(new_frame);
 		_notifier.wake();
 		list_user_frames();
 		tr_queue->_buffer_queue_lock.acquire_write();
-
-		return;
-	}
-
-	click_chatter("%{element} :: %s :: frame in clients hashmap",
-													this, __func__);
-
-	list_user_frames();
-
-	FrameInfo * current_frame = _clients_current_frame.get(dst);
-
-	if (!current_frame)
-		click_chatter("%{element} :: %s :: no current frame",
-														this, __func__);
-
-	if (((current_frame->_frame_length + (int)p->length()) > tr_queue->_max_length) || current_frame->_complete) {
-		click_chatter("%{element} :: %s :: complete",
-														this, __func__);
-		current_frame->_complete = true;
-		FrameInfo * new_frame = new FrameInfo();
-
-		new_frame->_frame = p->uniqueify();
-		if (!new_frame->_frame) {
-			new_frame->_frame->kill();
-			tr_queue->_dropped_packets++;
-			return;
-		}
-		new_frame->_frame_length = new_frame->_frame->length();
-		new_frame->_dst = dst;
-		new_frame->_bssid = bssid;
-		new_frame->_iface = iface;
-		_clients_current_frame.set(dst, new_frame);
-		tr_queue->_buffer_queue_lock.acquire_write();
-		tr_queue->_frames.push_back(new_frame);
-		_notifier.wake();
-		tr_queue->_buffer_queue_lock.release_write();
 	} else {
-		WritablePacket *q = current_frame->_frame->put(p->length());
-		if (!q) {
-			_clients_current_frame.erase(_clients_current_frame.find(dst));
-			tr_queue->discard_frame(current_frame);
-			tr_queue->_dropped_packets++;
-			return;
-		}
-		current_frame->_frame = q;
-		click_chatter("%{element} :: %s :: not complete. adding frame",
+
+		click_chatter("%{element} :: %s :: frame in clients hashmap",
 														this, __func__);
-		memcpy(current_frame->_frame->data() + current_frame->_frame_length, p->data(), p->length());
-		current_frame->_frame_length += current_frame->_frame->length();
-		current_frame->_msdus++;
-		current_frame->_average_time_diff = std::max(current_frame->_average_time_diff, (Timestamp::now() - current_frame->_last_frame_time));
-		current_frame->_last_frame_time = Timestamp::now();
-	}
-	click_chatter("%{element} :: %s :: after",
-													this, __func__);
-	// Check if it can wait for the next frame to complete this one
-	int transm_time = frame_transmission_time(dst, current_frame->_frame_length, iface);
-	if (tr_queue->_deadline_discard &&
-			((Timestamp::make_usec(transm_time) + current_frame->_average_time_diff) > Timestamp::make_usec(tr_queue->_max_delay))) {
-		current_frame->_complete = true;
+
+		list_user_frames();
+
+		FrameInfo * current_frame = _clients_current_frame.get(dst);
+
+		if (((current_frame->_frame_length + (int)p->length()) > tr_queue->_max_length) || current_frame->_complete) {
+			current_frame->_complete = true;
+			FrameInfo * new_frame = new FrameInfo();
+
+			new_frame->_frame = p->uniqueify();
+			if (!new_frame->_frame) {
+				new_frame->_frame->kill();
+				tr_queue->_dropped_packets++;
+				return;
+			}
+			new_frame->_frame_length = new_frame->_frame->length();
+			new_frame->_msdus++;
+			new_frame->_dst = dst;
+			new_frame->_bssid = bssid;
+			new_frame->_iface = iface;
+			_clients_current_frame.set(dst, new_frame);
+			tr_queue->_buffer_queue_lock.acquire_write();
+			tr_queue->_frames.push_back(new_frame);
+			_notifier.wake();
+			tr_queue->_buffer_queue_lock.release_write();
+		} else {
+			WritablePacket *q = current_frame->_frame->put(p->length());
+			if (!q) {
+				_clients_current_frame.erase(_clients_current_frame.find(dst));
+				tr_queue->discard_frame(current_frame);
+				tr_queue->_dropped_packets++;
+				return;
+			}
+			current_frame->_frame = q;
+			click_chatter("%{element} :: %s :: not complete. adding frame",
+															this, __func__);
+			memcpy(current_frame->_frame->data() + current_frame->_frame_length, p->data(), p->length());
+			current_frame->_frame_length += current_frame->_frame->length();
+			current_frame->_msdus++;
+			current_frame->_average_time_diff = std::max(current_frame->_average_time_diff, (Timestamp::now() - current_frame->_last_frame_time));
+			current_frame->_last_frame_time = Timestamp::now();
+		}
+		// Check if it can wait for the next frame to complete this one
+		int transm_time = frame_transmission_time(dst, current_frame->_frame_length, iface);
+		if (tr_queue->_deadline_discard &&
+				((Timestamp::make_usec(transm_time) + current_frame->_average_time_diff) > Timestamp::make_usec(tr_queue->_max_delay))) {
+			current_frame->_complete = true;
+		}
 	}
 }
 
@@ -477,62 +432,38 @@ EmpowerQoSManager::pull(int) {
 
 	// TODO. Add ordering in a slice by...? expiration time?
 	while (!delivered_packet && _traffic_rules.size() != _empty_traffic_rules) {
-		click_chatter("%{element} :: %s :: ----- Pull 2----- ",
-													 this,
-													 __func__);
 		BufferQueueInfo queue_info = _rr_order.front();
 		BufferQueue * tr_queue =  _traffic_rules.get(queue_info);
 
-		//queue->_mutex.acquire_write();
 		while (tr_queue && tr_queue->_frames.size()) {
-			click_chatter("%{element} :: %s :: ----- Pull 3----- ",
-														 this,
-														 __func__);
 			// TODO. By the moment is done taking the first one. This must be improved
 			// TODO. What happens if I go to a queue and the packet is not still completed? Shall I wait? Shall I take the next one?
 			FrameInfo *next_frame = tr_queue->pull();
-			click_chatter("%{element} :: %s :: ----- Pull 3b----- ",
-																	 this,
-																	 __func__);
-			if (!next_frame)
-				click_chatter("%{element} :: %s :: ----- it does not exist before----- ",
-																					 this,
-																					 __func__);
-			else
-				click_chatter("%{element} :: %s :: ----- it exists before----- ",
-																									 this,
-																									 __func__);
-			_clients_current_frame.erase(_clients_current_frame.find(next_frame->_dst));
-			click_chatter("%{element} :: %s :: ----- Pull 3c----- ",
-																	 this,
-																	 __func__);
-			if (!next_frame)
-				click_chatter("%{element} :: %s :: ----- it does not exist after----- ",
-																								 this,
-																								 __func__);
-			else
-				click_chatter("%{element} :: %s :: ----- it exists after----- ",
-																												 this,
-																												 __func__);
+			if (tr_queue->_amsdu_aggregation) {
+				_clients_current_frame.erase(_clients_current_frame.find(next_frame->_dst));
+				//TODO. Update _clients_current_frames to point to the next frame
+			}
+
 			// If the transmission time + the time that the frame has been in the queue exceeds the delay deadline
 			// this frame is discarded
 			int transm_time = frame_transmission_time(next_frame->_dst, next_frame->_frame_length, next_frame->_iface);
-			click_chatter("%{element} :: %s :: ----- Pull 3d----- ",
-																	 this,
-																	 __func__);
 			if (!tr_queue->_deadline_discard ||
 					(tr_queue->_deadline_discard && !tr_queue->check_delay_deadline(next_frame, transm_time))) {
-				click_chatter("%{element} :: %s :: ----- Pull 5----- ",
-															 this,
-															 __func__);
 				// If it is the first time of this queue and it is not empty, a new deficit must be assigned
 				if (tr_queue->_first_pkt) {
 					// TODO. compute quantum
 					//slice->_quantum = 1000; // TODO. CHANGE OF COURSE
 					tr_queue->_deficit += tr_queue->_quantum;
 					tr_queue->_first_pkt = false;
+					click_chatter("%{element} :: %s :: ----- First packet. Adding deficit. Deficit %d, quantum %d ----- ",
+																 this,
+																 __func__,
+																 tr_queue->_deficit,
+																 tr_queue->_quantum);
+					list_traffic_rules();
 				}
 				if (tr_queue->_deficit >= transm_time) {
+
 					delivered_packet = true;
 					tr_queue->_deficit -= transm_time;
 					tr_queue->_total_consumed_time += transm_time;
@@ -540,15 +471,19 @@ EmpowerQoSManager::pull(int) {
 					tr_queue->_transmitted_msdus += next_frame->_msdus;
 					tr_queue->_transmitted_bytes += next_frame->_frame_length;
 
+					EtherAddress dst = next_frame->_dst;
+
+					tr_queue->remove_frame_from_queue(next_frame);
+
 					click_chatter("%{element} :: %s :: ----- PULL in traffic rule queue (%d, %s) for station  %s. Remaining deficit %d. "
 							"Remaining packets %d (Consumption: time %d packets %d msdus %d bytes %d ---- ",
 																			 this,
 																			 __func__,
 																			 queue_info._dscp,
 																			 queue_info._tenant.c_str(),
-																			 next_frame->_dst.unparse().c_str(),
+																			 dst.unparse().c_str(),
 																			 tr_queue->_deficit,
-																			 (tr_queue->_frames.size() - 1),
+																			 tr_queue->_frames.size(),
 																			 tr_queue->_total_consumed_time,
 																			 tr_queue->_transmitted_packets,
 																			 tr_queue->_transmitted_msdus,
@@ -558,9 +493,9 @@ EmpowerQoSManager::pull(int) {
 						tr_queue->_deficit = 0;
 						_empty_traffic_rules ++;
 					}
-
-					tr_queue->remove_frame_from_queue(next_frame);
 					return empower_wifi_encap(next_frame);
+				} else {
+					break;
 				}
 			} else {
 				tr_queue->_dropped_packets++;
@@ -571,91 +506,59 @@ EmpowerQoSManager::pull(int) {
 				tr_queue->discard_frame(next_frame);
 			}
 		}
-		click_chatter("%{element} :: %s :: ----- Pull 6----- ",
-													 this,
-													 __func__);
+
 		tr_queue->_first_pkt = true;
 		_rr_order.push_back(queue_info);
 		_rr_order.pop_front();
 	}
+	click_chatter("%{element} :: %s :: ----- There is no more packets----- ",
+												 this,
+												 __func__);
 	return 0;
 }
 
 int
 EmpowerQoSManager::frame_transmission_time(EtherAddress next_delireved_client, int pkt_length, int iface) {
 
-	MinstrelDstInfo * nfo = _el->get_dst_info(next_delireved_client);
-	click_chatter("%{element} :: %s :: ----- Pull 3e----- ",
-																		 this,
-																		 __func__);
-	TxPolicyInfo * tx_policy = _el->get_tx_policies(iface)->lookup(next_delireved_client);
-	click_chatter("%{element} :: %s :: ----- Pull 3f----- ",
-																		 this,
-																		 __func__);
-
 	int rate, nb_retransm = 0;
 	uint32_t usecs = 1000000;
+	TxPolicyInfo * tx_policy = _el->get_tx_policies(iface)->supported(next_delireved_client);
+	MinstrelDstInfo * nfo = _el->get_dst_info(next_delireved_client);
 
-	if (nfo && nfo->rates.size() > 0 && nfo->max_tp_rate < nfo->rates.size()) {
-		click_chatter("%{element} :: %s :: ----- Pull 3g----- ",
-																			 this,
-																			 __func__);
-		click_chatter("%{element} :: %s :: ----- Pull 3g bis vector size %d max rate %d----- ",
-																					 this,
-																					 __func__,
-																					 nfo->rates.size(),
-																					 nfo->max_tp_rate);
-
+	if (!next_delireved_client.is_group() && !next_delireved_client.is_broadcast() &&
+			nfo && nfo->rates.size() > 0 && nfo->max_tp_rate < nfo->rates.size()) {
 		rate = (nfo->rates[nfo->max_tp_rate]);
-		click_chatter("%{element} :: %s :: ----- Pull 3h----- ",
-																					 this,
-																					 __func__);
 		// Probabilities must be divided by 180 to obtain a percentage 97.88
 		int success_prob = nfo->probability[nfo->max_tp_rate];
-		// To obtain the number of retransmissions, it must be 1/(percentg./100) -> 180*100 = 18000
-		success_prob = 18000/success_prob;
-		nb_retransm = (int) ((1 / success_prob) + 0.5); // To truncate properly
+		if (success_prob > 0) {
+			// To obtain the number of retransmissions, it must be 1/(percentg./100) -> 180*100 = 18000
+			success_prob = 18000/success_prob;
+			nb_retransm = (int) ((1 / success_prob) + 0.5); // To truncate properly
+		} else {
+			nb_retransm = 0;
+		}
 		// In case the nb_transm is higher than 1 it is also considering the first transm
 		// For example... prob success = 0.8 -> 1/0.8 = 1.25. It will sent the packets, 1.25 times.
 		// When truncating it becomes 1, but the number of retransmissions is 0. The first one is the transmission.
 		if (nb_retransm >= 1)
 			nb_retransm --;
-		click_chatter("%{element} :: %s :: ----- Pull 3hh----- ",
-																					 this,
-																					 __func__);
-	}
-	else {
-		click_chatter("%{element} :: %s :: ----- Pull 3i----- ",
-																			 this,
-																			 __func__);
-		rate = tx_policy->_mcs[0];
-		click_chatter("%{element} :: %s :: ----- Pull 3j----- ",
-																					 this,
-																					 __func__);
+	} else {
+		if(!tx_policy || tx_policy->_ht_mcs.size() == 0) {
+			Vector<int> rates = _el->get_tx_policies(iface)->lookup(next_delireved_client)->_mcs;
+			rate = (rates.size()) ? rates[0] : 2;
+		}
+		else {
+			Vector<int> ht_rates = _el->get_tx_policies(iface)->lookup(next_delireved_client)->_ht_mcs;
+			rate = (ht_rates.size()) ? ht_rates[0] : 2;
+		}
 	}
 
-	if(tx_policy->_ht_mcs.size()) {
-		click_chatter("%{element} :: %s :: ----- Pull 3jj1----- ",
-																							 this,
-																							 __func__);
+	if(tx_policy && tx_policy->_ht_mcs.size()) {
 		usecs = calc_usecs_wifi_packet_ht(pkt_length, rate, nb_retransm);
-		click_chatter("%{element} :: %s :: ----- Pull 3jj----- ",
-																							 this,
-																							 __func__);
 	}
 	else {
-		click_chatter("%{element} :: %s :: ----- Pull 3jjj1----- ",
-																							 this,
-																							 __func__);
 		usecs = calc_usecs_wifi_packet(pkt_length, rate, nb_retransm);
-		click_chatter("%{element} :: %s :: ----- Pull 3jjj----- ",
-																							 this,
-																							 __func__);
 	}
-
-	click_chatter("%{element} :: %s :: ----- Pull 3k----- ",
-																				 this,
-																				 __func__);
 
 	return usecs;
 }
@@ -714,6 +617,8 @@ EmpowerQoSManager::list_traffic_rules() {
 		sa << it.value()->_transmitted_packets;
 		sa << " transm. bytes ";
 		sa << it.value()->_transmitted_bytes;
+		sa << " packets in the queue ";
+		sa << it.value()->_frames.size();
 		sa << "\n";
 	}
 	click_chatter("%{element} :: %s :: ----- %s ---- ",
@@ -777,6 +682,8 @@ EmpowerQoSManager::list_traffic_rule(BufferQueue * traffic_rule) {
 	sa << traffic_rule->_transmitted_packets;
 	sa << " transm. bytes ";
 	sa << traffic_rule->_transmitted_bytes;
+	sa << " packets in the queue ";
+	sa << traffic_rule->_frames.size();
 	sa << "\n";
 
 	click_chatter("%{element} :: %s :: ----- %s ---- ",
@@ -923,16 +830,36 @@ EmpowerQoSManager::release_traffic_rule(int dscp, String tenant) {
 
 Packet *
 EmpowerQoSManager::empower_wifi_encap(FrameInfo * next_frame) {
+	if (!next_frame)
+		click_chatter("%{element} :: %s :: No next frame",
+								  this,
+								  __func__);
+	else
+		click_chatter("%{element} :: %s :: next frame",
+										  this,
+										  __func__);
+
 	Packet *p = (Packet *) next_frame->_frame;
+	click_chatter("%{element} :: %s :: wifiencap 1",
+											  this,
+											  __func__);
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress src = EtherAddress(eh->ether_shost);
 //	EtherAddress dst = EtherAddress(eh->ether_dhost);
+	click_chatter("%{element} :: %s :: wifiencap 2",
+												  this,
+												  __func__);
 	EtherAddress dst = next_frame->_dst;
+
+	click_chatter("%{element} :: %s :: wifiencap 3",
+												  this,
+												  __func__);
+
+	TxPolicyInfo *tx_policy = _el->get_tx_policies(next_frame->_iface)->lookup(dst);
 
 	// unicast traffic
 	if (!dst.is_broadcast() && !dst.is_group()) {
 		EmpowerStationState *ess = _el->get_ess(dst);
-		TxPolicyInfo *txp = _el->get_txp(dst);
 		if (!ess) {
 			p->kill();
 			return 0;
@@ -958,7 +885,7 @@ EmpowerQoSManager::empower_wifi_encap(FrameInfo * next_frame) {
 			return 0;
 		}
 		Packet * p_out = wifi_encap(p, dst, src, ess->_lvap_bssid);
-		txp->update_tx(p->length());
+		tx_policy->update_tx(p->length());
 		SET_PAINT_ANNO(p_out, ess->_iface_id);
 		return p_out;
 	}
@@ -966,9 +893,17 @@ EmpowerQoSManager::empower_wifi_encap(FrameInfo * next_frame) {
 	// broadcast and multicast traffic, we need to transmit one frame for each unique
 	// bssid. this is due to the fact that we can have the same bssid for multiple LVAPs.
 	Packet * p_out = wifi_encap(p, dst, src, next_frame->_bssid);
-	TxPolicyInfo * tx_policy =_el->get_txp(dst);
+	click_chatter("%{element} :: %s :: wifiencap 4",
+												  this,
+												  __func__);
 	tx_policy->update_tx(p->length());
+	click_chatter("%{element} :: %s :: wifiencap 5",
+													  this,
+													  __func__);
 	SET_PAINT_ANNO(p_out, next_frame->_iface);
+	click_chatter("%{element} :: %s :: wifiencap 6",
+													  this,
+													  __func__);
 	return p_out;
 }
 

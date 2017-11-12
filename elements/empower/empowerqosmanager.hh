@@ -42,7 +42,7 @@ public:
 		_complete = false;
 		_average_time_diff = Timestamp::now(); // It should be the time needed to transmit this frame
 		_frame_length = 0;
-		_msdus = 1;
+		_msdus = 0;
 		_frame = 0;
 		_dst = EtherAddress();
 		_bssid = EtherAddress();
@@ -178,7 +178,8 @@ public:
 		_buffer_queue_lock.acquire_write();
 		for (Vector<FrameInfo*>::iterator it = _frames.begin(); it != _frames.end(); it++) {
 			if (*it == current_frame) {
-				delete it;
+				//delete it;
+				_frames.erase(it);
 				break;
 			}
 		}
