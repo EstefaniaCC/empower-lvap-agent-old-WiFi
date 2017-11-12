@@ -37,16 +37,17 @@ int EmpowerQoSManager::configure(Vector<String> &conf,
 			.read_m("EL", ElementCastArg("EmpowerLVAPManager"), _el)
 			.read("DEBUG", _debug)
 			.complete();
-
 }
 
 void *
 EmpowerQoSManager::cast(const char *n)
 {
-    if (strcmp(n, Notifier::EMPTY_NOTIFIER) == 0)
+    if (strcmp(n, "EmpowerQoSManager") == 0)
+    	return (EmpowerQoSManager *) this;
+    else if (strcmp(n, Notifier::EMPTY_NOTIFIER) == 0)
     	return static_cast<Notifier *>(&_notifier);
-    else
-    	return Element::cast(n);
+	else
+		return SimpleQueue::cast(n);
 }
 
 int EmpowerQoSManager::initialize(ErrorHandler *) {
@@ -80,7 +81,6 @@ EmpowerQoSManager::push(int, Packet *p) {
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress dst = EtherAddress(eh->ether_dhost);
 
-	// There is no default queue. If nothing matches or if it is bcast/mcast -> dscp 0
 	// unicast traffic
 	if (!dst.is_broadcast() && !dst.is_group()) {
 
@@ -172,18 +172,18 @@ EmpowerQoSManager::push(int, Packet *p) {
 
 		if (it_tr_queues.value()->_tenant_type == EMPOWER_TYPE_UNIQUE) {
 			for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
-				if (it.value()._ssid != it_tr_queues.key()._tenant) {
-					continue;
-				}
+//				if (it.value()._ssid != it_tr_queues.key()._tenant) {
+//					continue;
+//				}
 				BufferQueueInfo tr_key (_default_dscp, it.value()._ssid);
 				BufferQueue * tr_queue = get_traffic_rule(_default_dscp, it.value()._ssid);
 				if (tr_queue) {
-							click_chatter("%{element} :: %s :: Multicast unique Queue found in unicast SSID %s DSCP %d exists. Dst %s",
-											this, __func__,
-											it.value()._ssid.c_str(),
-											_default_dscp,
-											dst.unparse().c_str());
-						}
+					click_chatter("%{element} :: %s :: Multicast unique Queue found in unicast SSID %s DSCP %d exists. Dst %s",
+									this, __func__,
+									it.value()._ssid.c_str(),
+									_default_dscp,
+									dst.unparse().c_str());
+				}
 
 				// Clone the packet for each lvap in this tenant
 				Packet *pq = q->clone();
@@ -315,6 +315,12 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 	click_chatter("%{element} :: %s :: enqueue function",
 											this, __func__);
 
+	if (!tr_queue) {
+		click_chatter("%{element} :: %s :: The queue does not exist",
+														this, __func__);
+		return;
+	}
+
 	if (_clients_current_frame.find(dst) == _clients_current_frame.end()) {
 		click_chatter("%{element} :: %s :: frame not in clients hashmap dst %s",
 												this, __func__,
@@ -356,7 +362,7 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 		tr_queue->_frames.push_back(new_frame);
 		_notifier.wake();
 		list_user_frames();
-		tr_queue->_buffer_queue_lock.acquire_write();
+		tr_queue->_buffer_queue_lock.release_write();
 	} else {
 
 		click_chatter("%{element} :: %s :: frame in clients hashmap",
@@ -389,9 +395,11 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 		} else {
 			WritablePacket *q = current_frame->_frame->put(p->length());
 			if (!q) {
+				tr_queue->_buffer_queue_lock.acquire_write();
 				_clients_current_frame.erase(_clients_current_frame.find(dst));
 				tr_queue->discard_frame(current_frame);
 				tr_queue->_dropped_packets++;
+				tr_queue->_buffer_queue_lock.release_write();
 				return;
 			}
 			current_frame->_frame = q;
@@ -830,30 +838,24 @@ EmpowerQoSManager::release_traffic_rule(int dscp, String tenant) {
 
 Packet *
 EmpowerQoSManager::empower_wifi_encap(FrameInfo * next_frame) {
-	if (!next_frame)
-		click_chatter("%{element} :: %s :: No next frame",
+	if (!next_frame) {
+		click_chatter("%{element} :: %s :: The next frame is not valid",
 								  this,
 								  __func__);
-	else
-		click_chatter("%{element} :: %s :: next frame",
-										  this,
-										  __func__);
+		return 0;
+	}
 
 	Packet *p = (Packet *) next_frame->_frame;
-	click_chatter("%{element} :: %s :: wifiencap 1",
-											  this,
-											  __func__);
+	if (!next_frame) {
+		click_chatter("%{element} :: %s :: The next frame is not valid",
+								  this,
+								  __func__);
+		return 0;
+	}
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress src = EtherAddress(eh->ether_shost);
 //	EtherAddress dst = EtherAddress(eh->ether_dhost);
-	click_chatter("%{element} :: %s :: wifiencap 2",
-												  this,
-												  __func__);
 	EtherAddress dst = next_frame->_dst;
-
-	click_chatter("%{element} :: %s :: wifiencap 3",
-												  this,
-												  __func__);
 
 	TxPolicyInfo *tx_policy = _el->get_tx_policies(next_frame->_iface)->lookup(dst);
 
@@ -893,17 +895,8 @@ EmpowerQoSManager::empower_wifi_encap(FrameInfo * next_frame) {
 	// broadcast and multicast traffic, we need to transmit one frame for each unique
 	// bssid. this is due to the fact that we can have the same bssid for multiple LVAPs.
 	Packet * p_out = wifi_encap(p, dst, src, next_frame->_bssid);
-	click_chatter("%{element} :: %s :: wifiencap 4",
-												  this,
-												  __func__);
 	tx_policy->update_tx(p->length());
-	click_chatter("%{element} :: %s :: wifiencap 5",
-													  this,
-													  __func__);
 	SET_PAINT_ANNO(p_out, next_frame->_iface);
-	click_chatter("%{element} :: %s :: wifiencap 6",
-													  this,
-													  __func__);
 	return p_out;
 }
 
