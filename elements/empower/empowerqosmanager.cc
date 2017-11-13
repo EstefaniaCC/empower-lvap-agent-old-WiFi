@@ -64,10 +64,6 @@ int EmpowerQoSManager::initialize(ErrorHandler *) {
 
 void
 EmpowerQoSManager::push(int, Packet *p) {
-
-	click_chatter("%{element} :: %s :: Push",
-									this, __func__);
-
 	const click_ip *ip = p->ip_header();
 	int dscp = (int)ip->ip_tos >> 2;
 
@@ -80,10 +76,17 @@ EmpowerQoSManager::push(int, Packet *p) {
 
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress dst = EtherAddress(eh->ether_dhost);
+	EtherAddress src = EtherAddress(eh->ether_shost);
+	uint8_t iface_id = PAINT_ANNO(p);
+
+	click_chatter("%{element} :: %s :: Push. Dst %s Src %s iface %d",
+										this, __func__,
+										dst.unparse().c_str(),
+										src.unparse().c_str(),
+										iface_id);
 
 	// unicast traffic
 	if (!dst.is_broadcast() && !dst.is_group()) {
-
 		EmpowerStationState *ess = _el->get_ess(dst);
 
 		if (!ess) {
@@ -91,6 +94,12 @@ EmpowerQoSManager::push(int, Packet *p) {
 						  this,
 						  __func__,
 						  dst.unparse().c_str());
+			p->kill();
+			return;
+		}
+
+		// The lvap is not attached to this interface
+		if (ess->_iface_id != iface_id){
 			p->kill();
 			return;
 		}
@@ -117,7 +126,6 @@ EmpowerQoSManager::push(int, Packet *p) {
 		}
 
 		String ssid = ess->_ssid;
-		BufferQueueInfo tr_key (dscp, ssid);
 		BufferQueue * tr_queue = get_traffic_rule(dscp, ssid);
 
 		if (tr_queue) {
@@ -137,7 +145,6 @@ EmpowerQoSManager::push(int, Packet *p) {
 					dscp);
 			// This dscp does not exist. The default queue for this tenant is used instead
 			dscp = _default_dscp;
-			BufferQueueInfo tr_key (dscp, ssid);
 			tr_queue = get_traffic_rule(dscp, ssid);
 
 			// TODO. Add a new queue is the tenant is not there for an incoming packet
@@ -151,10 +158,6 @@ EmpowerQoSManager::push(int, Packet *p) {
 		enqueue_unicast_frame(dst, tr_queue, p, ess->_lvap_bssid, ess->_iface_id);
 		return;
 	}
-
-	click_chatter("%{element} :: %s :: Dst is multicast or broadcast %s",
-					this, __func__,
-					dst.unparse().c_str());
 
 	// Broadcast and multicast frames are copied in the default queue of each tenant.
 	// If the tenant is unique, the packet is cloned for each destination address but it is not aggregated
@@ -172,10 +175,22 @@ EmpowerQoSManager::push(int, Packet *p) {
 
 		if (it_tr_queues.value()->_tenant_type == EMPOWER_TYPE_UNIQUE) {
 			for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
-//				if (it.value()._ssid != it_tr_queues.key()._tenant) {
-//					continue;
-//				}
-				BufferQueueInfo tr_key (_default_dscp, it.value()._ssid);
+				if (it.value()._ssid != it_tr_queues.key()._tenant) {
+					continue;
+				}
+
+				// Clone the packet for each lvap in this tenant
+				Packet *pq = q->clone();
+				if (!pq) {
+					continue;
+				}
+
+				// The lvap is not attached to this interface
+				if (it.value()._iface_id != iface_id){
+					pq->kill();
+					return;
+				}
+
 				BufferQueue * tr_queue = get_traffic_rule(_default_dscp, it.value()._ssid);
 				if (tr_queue) {
 					click_chatter("%{element} :: %s :: Multicast unique Queue found in unicast SSID %s DSCP %d exists. Dst %s",
@@ -185,11 +200,7 @@ EmpowerQoSManager::push(int, Packet *p) {
 									dst.unparse().c_str());
 				}
 
-				// Clone the packet for each lvap in this tenant
-				Packet *pq = q->clone();
-				if (!pq) {
-					continue;
-				}
+
 				// Change the DA to the unicast one
 				// TODO. Not to change the address if the dst is broadcast
 				WritablePacket *unicast_pkt = pq->uniqueify();
@@ -209,103 +220,113 @@ EmpowerQoSManager::push(int, Packet *p) {
 				enqueue_unicast_frame(dst,tr_queue, (Packet *) unicast_pkt, it.value()._lvap_bssid, it.value()._iface_id);
 			}
 		} else {
-			click_chatter("%{element} :: %s :: Multicast shared",
-										this, __func__);
 			// EMPOWER_TYPE_SHARED
 			// If the tenant is shared the frame should be duplicated as many as VAPs (as many as bssids) if the the policy is legacy.
 			// if it is DMS the DA does not change, but the bssid is set to each lvap (as many as lvaps)
 			BufferQueueInfo tr_key (_default_dscp,it_tr_queues.key()._tenant);
 			BufferQueue * tr_queue = get_traffic_rule(_default_dscp,it_tr_queues.key()._tenant);
 
-			for (int i = 0; i < _el->num_ifaces(); i++) {
-				TxPolicyInfo * tx_policy = _el->get_tx_policies(i)->lookup(dst);
+			TxPolicyInfo * tx_policy = _el->get_tx_policies(iface_id)->lookup(dst);
 
-				if (tx_policy->_tx_mcast == TX_MCAST_DMS) {
-					click_chatter("%{element} :: %s :: Multicast shared dms",
-															this, __func__);
-					// dms mcast policy, duplicate the frame for each station in
-					// each bssid and use unicast destination addresses. note that
-					// a given station cannot be in more than one bssid, so just
-					// track if the frame has already been delivered to a given
-					// station.
+			if (tx_policy->_tx_mcast == TX_MCAST_DMS) {
+				click_chatter("%{element} :: %s :: Multicast shared dms",
+														this, __func__);
+				// dms mcast policy, duplicate the frame for each station in
+				// each bssid and use unicast destination addresses. note that
+				// a given station cannot be in more than one bssid, so just
+				// track if the frame has already been delivered to a given
+				// station.
 
-					Vector<EtherAddress> sent;
-					for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
-						// TODO. This should be checked? What about the ARP or similar traffic?
-						if (it.value()._ssid != it_tr_queues.key()._tenant) {
-							continue;
-						}
-						EtherAddress sta = it.value()._sta;
-						if (it.value()._iface_id != i) {
-							continue;
-						}
-						if (!it.value()._set_mask) {
-							continue;
-						}
-						if (!it.value()._authentication_status) {
-							continue;
-						}
-						if (!it.value()._association_status) {
-							continue;
-						}
-						if (find(sent.begin(), sent.end(), sta) != sent.end()) {
-							continue;
-						}
-						sent.push_back(sta);
-						Packet *q = p->clone();
-						if (!q) {
-							continue;
-						}
-						// TODO. Is this sta or dst?
-						enqueue_unicast_frame(sta, tr_queue, q, it.value()._lvap_bssid, it.value()._iface_id);
+				Vector<EtherAddress> sent;
+				for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
+					// TODO. This should be checked? What about the ARP or similar traffic?
+					if (it.value()._ssid != it_tr_queues.key()._tenant) {
+						continue;
 					}
 
-				} else if (tx_policy->_tx_mcast == TX_MCAST_UR) {
+					// If the lvap_bssid and the net_bssid is the same, it means this client is
+					// attached to a unique tenant instead of to a shared one
+					if (it.value()._lvap_bssid == it.value()._net_bssid) {
+						continue;
+					}
 
-					// TODO: implement
+					EtherAddress sta = it.value()._sta;
+					if (it.value()._iface_id != iface_id) {
+						continue;
+					}
+					if (!it.value()._set_mask) {
+						continue;
+					}
+					if (!it.value()._authentication_status) {
+						continue;
+					}
+					if (!it.value()._association_status) {
+						continue;
+					}
+					if (find(sent.begin(), sent.end(), sta) != sent.end()) {
+						continue;
+					}
+					sent.push_back(sta);
+					Packet *q = p->clone();
+					if (!q) {
+						continue;
+					}
+					// TODO. Is this sta or dst?
+					enqueue_unicast_frame(sta, tr_queue, q, it.value()._lvap_bssid, it.value()._iface_id);
+				}
 
-				} else {
+			} else if (tx_policy->_tx_mcast == TX_MCAST_UR) {
 
-					click_chatter("%{element} :: %s :: Multicast shared legacy o bdcast",
-															this, __func__);
+				// TODO: implement
 
-					// legacy mcast policy, just send the frame as it is, minstrel will
-					// pick the rate from the transmission policies table
+			} else {
 
-					Vector<EtherAddress> sent;
+				click_chatter("%{element} :: %s :: Multicast shared legacy o bdcast",
+														this, __func__);
 
-					for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
-						// TODO. This should be checked? What about the ARP or similar traffic?
+				// legacy mcast policy, just send the frame as it is, minstrel will
+				// pick the rate from the transmission policies table
+
+				Vector<EtherAddress> sent;
+
+				for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
+					// TODO. This should be checked? What about the ARP or similar traffic?
 //						if (it.value()._ssid != it_tr_queues.key()._tenant) {
 //							continue;
 //						}
+					EtherAddress bssid = it.value()._lvap_bssid;
 
-						EtherAddress bssid = it.value()._lvap_bssid;
-						if (it.value()._iface_id != i) {
-							continue;
-						}
-						if (!it.value()._set_mask) {
-							continue;
-						}
-						if (!it.value()._authentication_status) {
-							continue;
-						}
-						if (!it.value()._association_status) {
-							continue;
-						}
-						if (find(sent.begin(), sent.end(), bssid) != sent.end()) {
-							continue;
-						}
-						sent.push_back(bssid);
-						Packet *q = p->clone();
-						if (!q) {
-							continue;
-						}
-						enqueue_unicast_frame(dst, tr_queue, q, bssid, it.value()._iface_id);
+					// If the lvap_bssid and the net_bssid is the same, it means this client is
+					// attached to a unique tenant instead of to a shared one
+					if (it.value()._lvap_bssid == it.value()._net_bssid) {
+						continue;
 					}
 
+					if (it.value()._iface_id != iface_id) {
+						continue;
+					}
+					if (!it.value()._set_mask) {
+						continue;
+					}
+					if (!it.value()._authentication_status) {
+						continue;
+					}
+					if (!it.value()._association_status) {
+						continue;
+					}
+					if (find(sent.begin(), sent.end(), bssid) != sent.end()) {
+						continue;
+					}
+					sent.push_back(bssid);
+					Packet *q = p->clone();
+					if (!q) {
+						continue;
+					}
+					enqueue_unicast_frame(dst, tr_queue, q, bssid, it.value()._iface_id);
 				}
+
 			}
+
 		}
 	}
 }
@@ -346,7 +367,7 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 
 		tr_queue->_buffer_queue_lock.acquire_write();
 		BufferQueueInfo key = get_traffic_rule_info(tr_queue);
-		list_traffic_rule(tr_queue);
+
 		if (tr_queue->_amsdu_aggregation) {
 			_clients_current_frame.set(dst, new_frame);
 
@@ -361,14 +382,11 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 
 		tr_queue->_frames.push_back(new_frame);
 		_notifier.wake();
-		list_user_frames();
 		tr_queue->_buffer_queue_lock.release_write();
 	} else {
 
 		click_chatter("%{element} :: %s :: frame in clients hashmap",
 														this, __func__);
-
-		list_user_frames();
 
 		FrameInfo * current_frame = _clients_current_frame.get(dst);
 
@@ -434,10 +452,6 @@ EmpowerQoSManager::pull(int) {
 		return 0;
 	}
 
-	click_chatter("%{element} :: %s :: ----- Pull ----- ",
-											 this,
-											 __func__);
-
 	// TODO. Add ordering in a slice by...? expiration time?
 	while (!delivered_packet && _traffic_rules.size() != _empty_traffic_rules) {
 		BufferQueueInfo queue_info = _rr_order.front();
@@ -449,7 +463,6 @@ EmpowerQoSManager::pull(int) {
 			FrameInfo *next_frame = tr_queue->pull();
 			if (tr_queue->_amsdu_aggregation) {
 				_clients_current_frame.erase(_clients_current_frame.find(next_frame->_dst));
-				//TODO. Update _clients_current_frames to point to the next frame
 			}
 
 			// If the transmission time + the time that the frame has been in the queue exceeds the delay deadline
@@ -468,10 +481,8 @@ EmpowerQoSManager::pull(int) {
 																 __func__,
 																 tr_queue->_deficit,
 																 tr_queue->_quantum);
-					list_traffic_rules();
 				}
 				if (tr_queue->_deficit >= transm_time) {
-
 					delivered_packet = true;
 					tr_queue->_deficit -= transm_time;
 					tr_queue->_total_consumed_time += transm_time;
@@ -629,10 +640,10 @@ EmpowerQoSManager::list_traffic_rules() {
 		sa << it.value()->_frames.size();
 		sa << "\n";
 	}
-	click_chatter("%{element} :: %s :: ----- %s ---- ",
-									 this,
-									 __func__,
-									 sa.take_string().c_str());
+//	click_chatter("%{element} :: %s :: ----- %s ---- ",
+//									 this,
+//									 __func__,
+//									 sa.take_string().c_str());
 	return sa.take_string();
 }
 
@@ -694,10 +705,10 @@ EmpowerQoSManager::list_traffic_rule(BufferQueue * traffic_rule) {
 	sa << traffic_rule->_frames.size();
 	sa << "\n";
 
-	click_chatter("%{element} :: %s :: ----- %s ---- ",
-								 this,
-								 __func__,
-								 sa.take_string().c_str());
+//	click_chatter("%{element} :: %s :: ----- %s ---- ",
+//								 this,
+//								 __func__,
+//								 sa.take_string().c_str());
 
 	return sa.take_string();
 }
@@ -731,10 +742,10 @@ EmpowerQoSManager::list_user_frames() {
 		sa << it.value()->_iface;
 		sa << "\n";
 	}
-	click_chatter("%{element} :: %s :: ----- %s ---- ",
-									 this,
-									 __func__,
-									 sa.take_string().c_str());
+//	click_chatter("%{element} :: %s :: ----- %s ---- ",
+//									 this,
+//									 __func__,
+//									 sa.take_string().c_str());
 	return sa.take_string();
 }
 
@@ -768,7 +779,6 @@ EmpowerQoSManager::request_traffic_rule(int dscp, String tenant, empower_tenant_
 		BufferQueue * tr_queue = new BufferQueue (tenant_type, priority, parent_priority, max_delay,
 				amsdu_aggregation, ampdu_aggregation, deadline_discard);
 		_traffic_rules.set(queue_info, tr_queue);
-		list_traffic_rule(tr_queue);
 		_rr_order.push_back(queue_info);
 		_empty_traffic_rules++;
 	}
@@ -888,7 +898,6 @@ EmpowerQoSManager::empower_wifi_encap(FrameInfo * next_frame) {
 		}
 		Packet * p_out = wifi_encap(p, dst, src, ess->_lvap_bssid);
 		tx_policy->update_tx(p->length());
-		SET_PAINT_ANNO(p_out, ess->_iface_id);
 		return p_out;
 	}
 
@@ -896,7 +905,6 @@ EmpowerQoSManager::empower_wifi_encap(FrameInfo * next_frame) {
 	// bssid. this is due to the fact that we can have the same bssid for multiple LVAPs.
 	Packet * p_out = wifi_encap(p, dst, src, next_frame->_bssid);
 	tx_policy->update_tx(p->length());
-	SET_PAINT_ANNO(p_out, next_frame->_iface);
 	return p_out;
 }
 
