@@ -100,6 +100,12 @@ EmpowerQoSManager::push(int, Packet *p) {
 
 		// The lvap is not attached to this interface
 		if (ess->_iface_id != iface_id){
+			click_chatter("%{element} :: %s :: wrong iface (%d) for station %s (%d)",
+						  this,
+						  __func__,
+						  dst.unparse().c_str(),
+						  iface_id,
+						  ess->_iface_id);
 			p->kill();
 			return;
 		}
@@ -175,20 +181,13 @@ EmpowerQoSManager::push(int, Packet *p) {
 
 		if (it_tr_queues.value()->_tenant_type == EMPOWER_TYPE_UNIQUE) {
 			for (LVAPIter it = _el->lvaps()->begin(); it.live(); it++) {
-				if (it.value()._ssid != it_tr_queues.key()._tenant) {
-					continue;
-				}
-
-				// Clone the packet for each lvap in this tenant
-				Packet *pq = q->clone();
-				if (!pq) {
-					continue;
-				}
+//				if (it.value()._ssid != it_tr_queues.key()._tenant) {
+//					continue;
+//				}
 
 				// The lvap is not attached to this interface
 				if (it.value()._iface_id != iface_id){
-					pq->kill();
-					return;
+					continue;
 				}
 
 				BufferQueue * tr_queue = get_traffic_rule(_default_dscp, it.value()._ssid);
@@ -200,6 +199,11 @@ EmpowerQoSManager::push(int, Packet *p) {
 									dst.unparse().c_str());
 				}
 
+				// Clone the packet for each lvap in this tenant
+				Packet *pq = q->clone();
+				if (!pq) {
+					continue;
+				}
 
 				// Change the DA to the unicast one
 				// TODO. Not to change the address if the dst is broadcast
