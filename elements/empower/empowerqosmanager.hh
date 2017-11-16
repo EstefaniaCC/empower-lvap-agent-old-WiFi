@@ -26,9 +26,9 @@ CLICK_DECLS
 
 class FrameInfo {
 public:
-	Timestamp _arrival_time;
-	Timestamp _average_time_diff;
-	Timestamp _last_frame_time;
+	uint64_t _arrival_time;
+	uint64_t _average_time_diff;
+	uint64_t _last_frame_time;
 	bool _complete;
 	WritablePacket * _frame; // It can be a simple or an aggregated frame
 	int _frame_length; // In case of aggregation this length and the one of the frame may not be the same
@@ -37,10 +37,10 @@ public:
 	EtherAddress _bssid;
 	int _iface;
 	FrameInfo() {
-		_arrival_time = Timestamp::now();
-		_last_frame_time = Timestamp();
+		_arrival_time = Timestamp::now().msecval();
+		_last_frame_time = Timestamp::now().msecval();
 		_complete = false;
-		_average_time_diff = Timestamp::now(); // It should be the time needed to transmit this frame
+		_average_time_diff = 0; // It should be the time needed to transmit this frame
 		_frame_length = 0;
 		_msdus = 0;
 		_frame = 0;
@@ -50,6 +50,38 @@ public:
 	}
 
 	~FrameInfo() {
+	}
+
+	void list_frame_info() {
+//		StringAccum sa;
+//		sa << "Client ";
+//		sa << _dst.unparse();
+//		sa << " arrival time ";
+//		sa << _arrival_time;
+//		sa << " average time diff ";
+//		sa << _average_time_diff;
+//		sa << " _last frame time ";
+//		sa << _last_frame_time;
+//		if (_complete) {
+//			sa << " complete";
+//		} else {
+//			sa << " not complete";
+//		}
+//		sa << " frame length ";
+//		sa << _frame_length;
+//		sa << " msdus ";
+//		sa << _msdus;
+//		sa << " bssid ";
+//		sa << _bssid.unparse();
+//		sa << " iface ";
+//		sa << _iface;
+//		sa << "\n";
+
+		click_chatter("%{element} :: %s :: ----- %s ---- ",
+										 this,
+										 __func__,
+										 _dst.unparse().c_str());
+//		return sa.take_string();
 	}
 
 	inline bool operator==(const FrameInfo &a) {
@@ -167,6 +199,7 @@ public:
 		for (Vector<FrameInfo*>::iterator it = _frames.begin(); it != _frames.end(); it++) {
 			if (*it == current_frame) {
 				current_frame->_frame->kill();
+				_frames.erase(it);
 				delete current_frame;
 				break;
 			}
@@ -187,8 +220,9 @@ public:
 	}
 
 	bool check_delay_deadline(FrameInfo *frame, int transmission_time) {
-		Timestamp elapsed_time = (Timestamp::now() - frame->_arrival_time);
-		if ((elapsed_time + Timestamp::make_usec(transmission_time)) > Timestamp::make_usec(_max_delay))
+		uint64_t time_now = Timestamp::now().msecval();
+		uint64_t elapsed_time = (time_now - frame->_arrival_time);
+		if ((elapsed_time + transmission_time) > _max_delay)
 			return true;
 		return false;
 	}
@@ -225,6 +259,13 @@ class EmpowerQoSManager : public SimpleQueue { public:
 
     int drops() { return(_drops); }
     int bdrops() { return(_bdrops); }
+    int incorrect_lvap_drops() { return(_incorrect_lvap_drops); }
+    int clone_malformed_drops() { return(_clone_malformed_drops); }
+    int bad_queue_drops() { return(_bad_queue_drops); }
+    int enqueued_unicast_frames() { return(_enqueued_unicast_frames); }
+    int pulled_frames() { return(_pulled_frames); }
+    int pushed_unicast_frames() { return(_pushed_unicast_frames); }
+    int sleeping_times() { return(_sleeping_times); }
     int system_quantum() { return(_system_quantum); }
     TrafficRulesQueues* get_traffic_rules() { return &_traffic_rules; }
 
@@ -283,6 +324,13 @@ class EmpowerQoSManager : public SimpleQueue { public:
     int _bdrops;
     unsigned int _empty_traffic_rules;
     bool _debug;
+    int _incorrect_lvap_drops;
+    int _clone_malformed_drops;
+    int _bad_queue_drops;
+    int _enqueued_unicast_frames;
+    int _pulled_frames;
+    int _pushed_unicast_frames;
+    int _sleeping_times;
 
     int compute_deficit(Packet*);
     static int write_handler(const String &, Element *, void *, ErrorHandler *);
