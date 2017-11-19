@@ -147,8 +147,12 @@ public:
 	int _transmitted_packets;
 	int _transmitted_msdus;
 	int _transmitted_bytes;
-	Vector<FrameInfo*> _frames;
 
+	FrameInfo** _frames;
+	int _capacity;
+	int _size;
+	int _head;
+	int _tail;
 	ReadWriteLock _buffer_queue_lock;
 
 	BufferQueue(empower_tenant_types tenant_type, uint8_t priority, uint8_t parent_priority, uint8_t max_delay,
@@ -166,57 +170,134 @@ public:
 		_transmitted_packets = 0;
 		_transmitted_msdus = 0;
 		_transmitted_bytes = 0;
+		_head = 0;
+		_tail = 0;
+		_size = 0;
+		_capacity = 16384;
+		_frames = new FrameInfo*[_capacity];
 	}
 
 	~BufferQueue() {
-		for (Vector<FrameInfo*>::iterator it = _frames.begin(); it != _frames.end(); it++) {
-			(*it)->_frame->kill();
-			delete (*it);
+		if (_head < _tail) {
+			for(int i = _head; i < _tail; i++) {
+				if(_frames[i]) {
+					_frames[i]->_frame->kill();
+				}
+			}
+		} else {
+			for (int i = _head; i < _capacity; i++) {
+				if(_frames[i]) {
+					_frames[i]->_frame->kill();
+				}
+			}
+			for (int i = 0; i < _tail; i++) {
+				if(_frames[i]) {
+					_frames[i]->_frame->kill();
+				}
+			}
 		}
+		delete[] _frames;
 	}
 
 	FrameInfo* pull() {
-		_buffer_queue_lock.acquire_write();
-		FrameInfo * next_frame = _frames.front();
-		_buffer_queue_lock.release_write();
+//		_buffer_queue_lock.acquire_write();
+		FrameInfo * next_frame = _frames[_head];
+//		_head = (_head + 1) % _capacity;
+//		_buffer_queue_lock.release_write();
 		return next_frame;
 	}
 
-	Packet* get_next_packet() {
-		Packet* p = 0;
-		_buffer_queue_lock.acquire_write();
-
-		// If the queue is deleted, I should also delete all the frames in the aggregated frame if the aggregated
-		// property is set to true
-		FrameInfo * next_frame = _frames.front();
-		p = next_frame->_frame;
-		_buffer_queue_lock.release_write();
-		return p;
+	bool push(FrameInfo *new_frame) {
+//		_buffer_queue_lock.acquire_write();
+		if (_size >= _capacity) {
+			return false;
+		}
+		_frames[_tail] = new_frame;
+		_tail = (_tail + 1) % _capacity;
+		_size++;
+//		_buffer_queue_lock.release_write();
+		return true;
 	}
+
+//	Packet* get_next_packet() {
+//		Packet* p = 0;
+//		_buffer_queue_lock.acquire_write();
+//
+//		// If the queue is deleted, I should also delete all the frames in the aggregated frame if the aggregated
+//		// property is set to true
+//		FrameInfo * next_frame = _frames.front();
+//		p = next_frame->_frame;
+//		_buffer_queue_lock.release_write();
+//		return p;
+//	}
 
 	void discard_frame(FrameInfo * current_frame) {
-		_buffer_queue_lock.acquire_write();
-		for (Vector<FrameInfo*>::iterator it = _frames.begin(); it != _frames.end(); it++) {
-			if (*it == current_frame) {
-				current_frame->_frame->kill();
-				_frames.erase(it);
-				delete current_frame;
-				break;
-			}
+//		_buffer_queue_lock.acquire_write();
+		bool remove = remove_frame_from_queue(current_frame);
+		if (remove) {
+			delete current_frame;
 		}
-		_buffer_queue_lock.release_write();
+//		_buffer_queue_lock.release_write();
 	}
 
-	void remove_frame_from_queue(FrameInfo * current_frame) {
-		_buffer_queue_lock.acquire_write();
-		for (Vector<FrameInfo*>::iterator it = _frames.begin(); it != _frames.end(); it++) {
-			if (*it == current_frame) {
-				//delete it;
-				_frames.erase(it);
-				break;
+	bool remove_frame_from_queue(FrameInfo * current_frame) {
+//		click_chatter("%{element} :: %s :: is valid 2",
+//																		  this,
+//																		  __func__);
+
+//		click_chatter("%{element} :: %s :: beginning. head %d",
+//															  this,
+//															  __func__,
+//															  _head);
+//		click_chatter("%{element} :: %s :: beginning. tail %d",
+//																	  this,
+//																	  __func__,
+//																	  _tail);
+//		click_chatter("%{element} :: %s :: beginning. size %d",
+//																	  this,
+//																	  __func__,
+//																	  _size);
+
+//		_buffer_queue_lock.acquire_write();
+
+		if (_head <= _tail) {
+			for (int i = _head; i < _tail; i++) {
+				if (_frames[i] == current_frame) {
+					for (int j = i; j > _head; j--) {
+						_frames[j] = _frames[j - 1];
+					}
+					_head++;
+					_size--;
+					return true;
+				}
 			}
 		}
-		_buffer_queue_lock.release_write();
+		else {
+			for (int i = _head; i < _capacity; i++) {
+				if (_frames[i] == current_frame) {
+					for (int j = i; j > _head; j--) {
+						_frames[j] = _frames[j - 1];
+					}
+					_head = (_head + 1) % _capacity;
+					_size--;
+					return true;
+				}
+			}
+			for (int i = 0; i < _tail; i++) {
+				if (_frames[i] == current_frame) {
+					for (int j = i; j < _tail - 1; j++) {
+						_frames[j] = _frames[j + 1];
+					}
+					_tail = (_tail == 0) ? _capacity - 1 : _tail - 1;
+					_size--;
+					return true;
+				}
+			}
+		}
+
+		return false;
+
+//		_buffer_queue_lock.release_write();
 	}
 
 	bool check_delay_deadline(FrameInfo *frame, int transmission_time) {
@@ -315,8 +396,12 @@ class EmpowerQoSManager : public SimpleQueue { public:
 
     TrafficRulesQueues _traffic_rules;
     UserFrames _clients_current_frame;
-    Vector <BufferQueueInfo> _rr_order;
     ReadWriteLock _traffic_rules_lock;
+
+    BufferQueueInfo *_rr_order;
+    int _next;
+    int _last;
+    int _max_rules;
 
     int _default_dscp;
     int _system_quantum;
@@ -324,6 +409,7 @@ class EmpowerQoSManager : public SimpleQueue { public:
     int _bdrops;
     unsigned int _empty_traffic_rules;
     bool _debug;
+
     int _incorrect_lvap_drops;
     int _clone_malformed_drops;
     int _bad_queue_drops;
@@ -331,6 +417,9 @@ class EmpowerQoSManager : public SimpleQueue { public:
     int _pulled_frames;
     int _pushed_unicast_frames;
     int _sleeping_times;
+
+    uint64_t push_init_time, push_end_time;
+    uint64_t pull_init_time, pull_end_time;
 
     int compute_deficit(Packet*);
     static int write_handler(const String &, Element *, void *, ErrorHandler *);

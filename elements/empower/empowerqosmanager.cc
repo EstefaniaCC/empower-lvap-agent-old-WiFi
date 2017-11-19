@@ -57,7 +57,11 @@ int EmpowerQoSManager::initialize(ErrorHandler *) {
 	_empty_traffic_rules = 0;
 	_system_quantum = 1470;
 	_default_dscp = 0;
+	_max_rules = 100;
 //	_notifier.initialize(Notifier::EMPTY_NOTIFIER, router());
+	_rr_order = new BufferQueueInfo[_max_rules];
+	_next = 0;
+	_last = -1;
 
 	_incorrect_lvap_drops = 0;
 	_clone_malformed_drops = 0;
@@ -97,6 +101,7 @@ EmpowerQoSManager::push(int, Packet *p) {
 	// unicast traffic
 	if (!dst.is_broadcast() && !dst.is_group()) {
 		_pushed_unicast_frames++;
+		push_init_time = Timestamp::now().msecval();
 		EmpowerStationState *ess = _el->get_ess(dst);
 
 		if (!ess) {
@@ -178,6 +183,15 @@ EmpowerQoSManager::push(int, Packet *p) {
 //							ssid.c_str(),
 //							dscp);
 		enqueue_unicast_frame(dst, tr_queue, p, ess->_lvap_bssid, ess->_iface_id);
+		push_end_time = Timestamp::now().msecval();
+		click_chatter("%{element} :: %s :: Push timing: init %lu",
+														this,
+														__func__,
+														push_init_time);
+		click_chatter("%{element} :: %s :: Push timing:  end %lu",
+																this,
+																__func__,
+																push_end_time);
 		return;
 	}
 
@@ -392,6 +406,14 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 		return;
 	}
 
+	click_chatter("%{element} :: %s :: queue: size %d head %d tail %d empty rules %d",
+																								this,
+																								__func__,
+																								tr_queue->_size,
+																								tr_queue->_head,
+																								tr_queue->_tail,
+																								_empty_traffic_rules);
+
 	if (_clients_current_frame.find(dst) == _clients_current_frame.end()) {
 //		click_chatter("%{element} :: %s :: frame not in clients hashmap dst %s",
 //												this, __func__,
@@ -413,24 +435,11 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 		new_frame->_bssid = bssid;
 		new_frame->_iface = iface;
 
-		click_chatter("%{element} :: %s :: push frame arrival time %lu",
-																				this, __func__,
-																				new_frame->_arrival_time);
-
-		if (tr_queue->_frames.size() == 0) {
+		if (tr_queue->_size == 0) {
 			_empty_traffic_rules--;
 		}
 
-//		new_frame->list_frame_info();
-
-		click_chatter("%{element} :: %s :: ----- %s ---- ",
-												 this,
-												 __func__,
-												 new_frame->_dst.unparse().c_str());
-
-
 		BufferQueueInfo key = get_traffic_rule_info(tr_queue);
-		tr_queue->_buffer_queue_lock.acquire_write();
 		if (tr_queue->_amsdu_aggregation) {
 			_clients_current_frame.set(dst, new_frame);
 
@@ -443,12 +452,21 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 			new_frame->_complete = true;
 		}
 
-		tr_queue->_frames.push_back(new_frame);
-		tr_queue->_buffer_queue_lock.release_write();
+		if (!tr_queue->push(new_frame)) {
+			click_chatter("%{element} :: %s :: The queue for tenant %s and dscp %d is full. The frame is discarded. size %d capacity %d",
+										this,
+										__func__,
+										key._tenant.c_str(),
+										key._dscp,
+										tr_queue->_size,
+										tr_queue->_capacity);
+			return;
+		}
+
 		if (!dst.is_broadcast() && !dst.is_group())
 			_enqueued_unicast_frames++;
-//		_notifier.wake();
-//		_sleepiness = 0;
+		_notifier.wake();
+		_sleepiness = 0;
 		click_chatter("%{element} :: %s :: waking up",
 																this, __func__);
 
@@ -477,24 +495,22 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 			new_frame->_bssid = bssid;
 			new_frame->_iface = iface;
 			_clients_current_frame.set(dst, new_frame);
-			tr_queue->_buffer_queue_lock.acquire_write();
-			tr_queue->_frames.push_back(new_frame);
-			tr_queue->_buffer_queue_lock.release_write();
+			tr_queue->push(new_frame);
 			if (!dst.is_broadcast() && !dst.is_group())
 				_enqueued_unicast_frames++;
-//			_notifier.wake();
-//			_sleepiness = 0;
+			_notifier.wake();
+			_sleepiness = 0;
 			click_chatter("%{element} :: %s :: waking up",
 															this, __func__);
 
 		} else {
 			WritablePacket *q = current_frame->_frame->put(p->length());
 			if (!q) {
-				tr_queue->_buffer_queue_lock.acquire_write();
+//				tr_queue->_buffer_queue_lock.acquire_write();
 				_clients_current_frame.erase(_clients_current_frame.find(dst));
 				tr_queue->discard_frame(current_frame);
 				tr_queue->_dropped_packets++;
-				tr_queue->_buffer_queue_lock.release_write();
+//				tr_queue->_buffer_queue_lock.release_write();
 				_drops++;
 				_clone_malformed_drops++;
 				return;
@@ -527,42 +543,55 @@ Packet *
 EmpowerQoSManager::pull(int) {
 	bool delivered_packet = false;
 
-//	if (_traffic_rules.size() == _empty_traffic_rules && _sleepiness == SLEEPINESS_TRIGGER) {
-//
-//		click_chatter("%{element} :: %s :: ----- All the buffer queues are empty: %d sleep %d ----- ",
-//										 this,
-//										 __func__,
-//										 _empty_traffic_rules,
-//										 _sleepiness);
-//		_sleeping_times++;
-//		_notifier.sleep();
-//		return 0;
-//	} else if (_traffic_rules.size() == _empty_traffic_rules && _sleepiness != SLEEPINESS_TRIGGER) {
-//		click_chatter("%{element} :: %s :: -----  sleep %d ----- ",
-//												 this,
-//												 __func__,
-//												 _sleepiness);
-//		 _sleepiness++;
-//	}
+	if (_traffic_rules.size() == _empty_traffic_rules && _sleepiness == SLEEPINESS_TRIGGER) {
+
+		click_chatter("%{element} :: %s :: ----- All the buffer queues are empty: %d sleep %d ----- ",
+										 this,
+										 __func__,
+										 _empty_traffic_rules,
+										 _sleepiness);
+		_sleeping_times++;
+		_notifier.sleep();
+		return 0;
+	} else if (_traffic_rules.size() == _empty_traffic_rules && _sleepiness != SLEEPINESS_TRIGGER) {
+		click_chatter("%{element} :: %s :: -----  sleep %d ----- ",
+												 this,
+												 __func__,
+												 _sleepiness);
+		 _sleepiness++;
+	}
+	pull_init_time = Timestamp::now().msecval();
 
 	// TODO. Add ordering in a slice by...? expiration time?
 	while (!delivered_packet && _traffic_rules.size() != _empty_traffic_rules) {
-		BufferQueueInfo queue_info = _rr_order.front();
+		BufferQueueInfo queue_info = _rr_order[_next];
 		BufferQueue * tr_queue =  _traffic_rules.get(queue_info);
 
-		while (tr_queue && tr_queue->_frames.size()) {
+		while (tr_queue && tr_queue->_size) {
 			// TODO. By the moment is done taking the first one. This must be improved
 			// TODO. What happens if I go to a queue and the packet is not still completed? Shall I wait? Shall I take the next one?
-//			FrameInfo *next_frame = tr_queue->pull();
-			FrameInfo *next_frame = tr_queue->_frames.front();
+			FrameInfo * next_frame = tr_queue->pull();
 
+			if (!next_frame) {
+				click_chatter("%{element} :: %s :: The next frame is not valid. queue %d size %d head %d tail %d",
+										  this,
+										  __func__,
+										  _next,
+										  tr_queue->_size,
+										  tr_queue->_head,
+										  tr_queue->_tail);
+				break;
+			}
 
 			// If the transmission time + the time that the frame has been in the queue exceeds the delay deadline
 			// this frame is discarded
-			int transm_time = 0;
-			if (tr_queue->_deadline_discard) {
-				transm_time = frame_transmission_time(next_frame->_dst, next_frame->_frame_length, next_frame->_iface);
-			}
+//			int transm_time = frame_transmission_time(next_frame->_dst, next_frame->_frame_length, next_frame->_iface);
+			int transm_time = 300;
+			click_chatter("%{element} :: %s :: ----- First packet. Deficit %d, transm time %d----- ",
+																			 this,
+																			 __func__,
+																			 tr_queue->_deficit,
+																			 transm_time);
 			if (!tr_queue->_deadline_discard ||
 					(tr_queue->_deadline_discard && !tr_queue->check_delay_deadline(next_frame, transm_time))) {
 				// If it is the first time of this queue and it is not empty, a new deficit must be assigned
@@ -571,14 +600,16 @@ EmpowerQoSManager::pull(int) {
 					//slice->_quantum = 1000; // TODO. CHANGE OF COURSE
 					tr_queue->_deficit += tr_queue->_quantum;
 					tr_queue->_first_pkt = false;
-//					click_chatter("%{element} :: %s :: ----- First packet. Adding deficit. Deficit %d, quantum %d ----- ",
-//																 this,
-//																 __func__,
-//																 tr_queue->_deficit,
-//																 tr_queue->_quantum);
+					click_chatter("%{element} :: %s :: ----- First packet. Adding deficit. Deficit %d, quantum %d transm time %d----- ",
+																 this,
+																 __func__,
+																 tr_queue->_deficit,
+																 tr_queue->_quantum,
+																 transm_time);
 				}
 				if (tr_queue->_deficit >= transm_time) {
 					delivered_packet = true;
+//					tr_queue->_head = (tr_queue->_head + 1) % tr_queue->_capacity;
 					tr_queue->_deficit -= transm_time;
 					tr_queue->_total_consumed_time += transm_time;
 					tr_queue->_transmitted_packets ++;
@@ -586,21 +617,6 @@ EmpowerQoSManager::pull(int) {
 					tr_queue->_transmitted_bytes += next_frame->_frame_length;
 
 					EtherAddress dst = next_frame->_dst;
-
-					if (!next_frame) {
-						click_chatter("%{element} :: %s :: The next frame is not valid. time %lu",
-												  this,
-												  __func__,
-												  next_frame->_arrival_time);
-						break;
-					} else {
-						click_chatter("%{element} :: %s :: The next frame is valid. time %lu",
-																  this,
-																  __func__,
-																  next_frame->_arrival_time);
-		//				next_frame->list_frame_info();
-					}
-
 					tr_queue->remove_frame_from_queue(next_frame);
 					if (tr_queue->_amsdu_aggregation) {
 						_clients_current_frame.erase(_clients_current_frame.find(next_frame->_dst));
@@ -612,24 +628,11 @@ EmpowerQoSManager::pull(int) {
 												  __func__,
 												  next_frame->_arrival_time);
 						break;
-					} else {
-						click_chatter("%{element} :: %s :: The next frame is valid 2 time %lu",
-																  this,
-																  __func__,
-																  next_frame->_arrival_time);
-//						next_frame->list_frame_info();
 					}
 
 					uint64_t time_now = Timestamp::now().msecval();
-					click_chatter("%{element} :: %s :: The next frame is valid 3 time %lu",
-																					  this,
-																					  __func__,
-																					  next_frame->_arrival_time);
 					uint64_t elapsed_time = (time_now - next_frame->_arrival_time);
-					click_chatter("%{element} :: %s :: The next frame is valid 4 time %lu",
-																					  this,
-																					  __func__,
-																					  next_frame->_arrival_time);
+
 					click_chatter("%{element} :: %s :: ----- PULL in traffic rule queue (%d, %s) for station  %s. Remaining deficit %d. "
 							"Remaining packets %d (Consumption: time %d packets %d msdus %d bytes %d now %lu arrival %lu difference %lu ---- ",
 																			 this,
@@ -638,7 +641,7 @@ EmpowerQoSManager::pull(int) {
 																			 queue_info._tenant.c_str(),
 																			 dst.unparse().c_str(),
 																			 tr_queue->_deficit,
-																			 tr_queue->_frames.size(),
+																			 tr_queue->_size,
 																			 tr_queue->_total_consumed_time,
 																			 tr_queue->_transmitted_packets,
 																			 tr_queue->_transmitted_msdus,
@@ -647,19 +650,46 @@ EmpowerQoSManager::pull(int) {
 																			 next_frame->_arrival_time,
 																			 elapsed_time);
 
-					click_chatter("%{element} :: %s :: The next frame is valid 5 time %lu",
-																										  this,
-																										  __func__,
-																										  next_frame->_arrival_time);
 
-					if (tr_queue->_frames.size() == 0) {
+					if (tr_queue->_size == 0) {
 						tr_queue->_deficit = 0;
 						_empty_traffic_rules ++;
+						tr_queue->_first_pkt = true;
+						_next++;
+						if (_next > _last) {
+							_next = 0;
+						}
 					}
-					if (!dst.is_broadcast() && !dst.is_group())
+					click_chatter("%{element} :: %s :: queue: size %d head %d tail %d empty rules %d",
+																							this,
+																							__func__,
+																							tr_queue->_size,
+																							tr_queue->_head,
+																							tr_queue->_tail,
+																							_empty_traffic_rules);
+
+					if (!dst.is_broadcast() && !dst.is_group()) {
 						_pulled_frames++;
-					return empower_wifi_encap(next_frame);
+						pull_end_time = Timestamp::now().msecval();
+						click_chatter("%{element} :: %s :: Pull timing: init %lu",
+																		this,
+																		__func__,
+																		pull_init_time);
+
+						click_chatter("%{element} :: %s :: Pull timing: end %lu",
+																		this,
+																		__func__,
+																		pull_end_time);
+					}
+					Packet * output = empower_wifi_encap(next_frame);
+					return output;
 				} else {
+					click_chatter("%{element} :: %s :: no time. time needed %d deficit",
+																		this,
+																		__func__,
+																		transm_time,
+																		tr_queue->_deficit);
+
 					break;
 				}
 			} else {
@@ -672,9 +702,18 @@ EmpowerQoSManager::pull(int) {
 			}
 		}
 
+		click_chatter("%{element} :: %s :: scheduler: next %d last %d max rules %d",
+																				this,
+																				__func__,
+																				_next,
+																				_last,
+																				_max_rules);
+
 		tr_queue->_first_pkt = true;
-		_rr_order.push_back(queue_info);
-		_rr_order.pop_front();
+		_next++;
+		if (_next > _last) {
+			_next = 0;
+		}
 	}
 //	click_chatter("%{element} :: %s :: ----- There is no more packets----- ",
 //												 this,
@@ -693,20 +732,21 @@ EmpowerQoSManager::frame_transmission_time(EtherAddress next_delireved_client, i
 	if (!next_delireved_client.is_group() && !next_delireved_client.is_broadcast() &&
 			nfo && nfo->rates.size() > 0 && nfo->max_tp_rate < nfo->rates.size()) {
 		rate = (nfo->rates[nfo->max_tp_rate]);
+
 		// Probabilities must be divided by 180 to obtain a percentage 97.88
-		int success_prob = nfo->probability[nfo->max_tp_rate];
-		if (success_prob > 0) {
-			// To obtain the number of retransmissions, it must be 1/(percentg./100) -> 180*100 = 18000
-			success_prob = 18000/success_prob;
-			nb_retransm = (int) ((1 / success_prob) + 0.5); // To truncate properly
-		} else {
-			nb_retransm = 0;
-		}
-		// In case the nb_transm is higher than 1 it is also considering the first transm
-		// For example... prob success = 0.8 -> 1/0.8 = 1.25. It will sent the packets, 1.25 times.
-		// When truncating it becomes 1, but the number of retransmissions is 0. The first one is the transmission.
-		if (nb_retransm >= 1)
-			nb_retransm --;
+//		int success_prob = nfo->probability[nfo->max_tp_rate];
+//		if (success_prob > 0) {
+//			// To obtain the number of retransmissions, it must be 1/(percentg./100) -> 180*100 = 18000
+//			success_prob = 18000/success_prob;
+//			nb_retransm = (int) ((1 / success_prob) + 0.5); // To truncate properly
+//		} else {
+//			nb_retransm = 0;
+//		}
+//		// In case the nb_transm is higher than 1 it is also considering the first transm
+//		// For example... prob success = 0.8 -> 1/0.8 = 1.25. It will sent the packets, 1.25 times.
+//		// When truncating it becomes 1, but the number of retransmissions is 0. The first one is the transmission.
+//		if (nb_retransm >= 1)
+//			nb_retransm --;
 	} else {
 		if(!tx_policy || tx_policy->_ht_mcs.size() == 0) {
 			Vector<int> rates = _el->get_tx_policies(iface)->lookup(next_delireved_client)->_mcs;
@@ -783,7 +823,7 @@ EmpowerQoSManager::list_traffic_rules() {
 		sa << " transm. bytes ";
 		sa << it.value()->_transmitted_bytes;
 		sa << " packets in the queue ";
-		sa << it.value()->_frames.size();
+		sa << it.value()->_size;
 		sa << "\n";
 	}
 //	click_chatter("%{element} :: %s :: ----- %s ---- ",
@@ -848,7 +888,7 @@ EmpowerQoSManager::list_traffic_rule(BufferQueue * traffic_rule) {
 	sa << " transm. bytes ";
 	sa << traffic_rule->_transmitted_bytes;
 	sa << " packets in the queue ";
-	sa << traffic_rule->_frames.size();
+	sa << traffic_rule->_size;
 	sa << "\n";
 
 //	click_chatter("%{element} :: %s :: ----- %s ---- ",
@@ -902,7 +942,7 @@ EmpowerQoSManager::request_traffic_rule(int dscp, String tenant, empower_tenant_
 	BufferQueueInfo queue_info(dscp, tenant);
 	BufferQueue * tr_queue;
 
-	_traffic_rules_lock.acquire_write();
+//	_traffic_rules_lock.acquire_write();
 
 	if (_traffic_rules.find(queue_info) == _traffic_rules.end()) {
 		// TODO. Decide how to set the priority and parent_priority
@@ -924,12 +964,25 @@ EmpowerQoSManager::request_traffic_rule(int dscp, String tenant, empower_tenant_
 
 		BufferQueue * tr_queue = new BufferQueue (tenant_type, priority, parent_priority, max_delay,
 				amsdu_aggregation, ampdu_aggregation, deadline_discard);
+
 		_traffic_rules.set(queue_info, tr_queue);
-		_rr_order.push_back(queue_info);
+		_last++;
+
+		if (_last == _max_rules) {
+			// reallocate memory.
+			_max_rules++;
+			BufferQueueInfo *temp = new BufferQueueInfo[_max_rules];
+			for (int i = 0; i < (_max_rules - 1); i++) {
+				temp[i] = _rr_order[i];
+			}
+			delete [] _rr_order;
+			_rr_order = temp;
+		}
+		_rr_order[_last] = queue_info;
 		_empty_traffic_rules++;
 	}
 
-	_traffic_rules_lock.release_write();
+//	_traffic_rules_lock.release_write();
 }
 
 void
@@ -953,7 +1006,7 @@ EmpowerQoSManager::release_traffic_rule(int dscp, String tenant) {
 		return;
 	}
 
-	_traffic_rules_lock.acquire_write();
+//	_traffic_rules_lock.acquire_write();
 
 	// Calculates the sum of the priorities of the remaining queues from the same tenant
 	int tenant_priorities = 0;
@@ -971,26 +1024,30 @@ EmpowerQoSManager::release_traffic_rule(int dscp, String tenant) {
 	}
 
 	// If the queue was empty, the empty queues counter should be decreased
-	if (tr_queue->_frames.size() == 0)
+	if (tr_queue->_size == 0)
 		_empty_traffic_rules--;
 
-	// The frames in the inner queues are also deleted
-	for (Vector<FrameInfo*>::iterator it = tr_queue->_frames.begin(); it != tr_queue->_frames.end(); it++) {
-		(*it)->_frame->kill();
-		delete (*it);
-	}
-	tr_queue->_frames.clear();
-
-	// The queue is erased from the scheduler and the RR order
-	for (Vector <BufferQueueInfo>::iterator it = _rr_order.begin(); it != _rr_order.end(); )
-	   if((*it) == tr_key) {
-	      it = _rr_order.erase(it);
-	      break;
-	   }
 	delete tr_queue;
-	_traffic_rules.erase(_traffic_rules.find(tr_key));
+//	_traffic_rules_lock.release_write();
 
-	_traffic_rules_lock.release_write();
+	_traffic_rules.erase(_traffic_rules.find(tr_key));
+	// The queue is erased from the scheduler and the RR order
+	int idx = -1;
+	for (int i = 0; i < _max_rules; i++) {
+		if (_rr_order[i] == tr_key) {
+			idx = i;
+			break;
+		}
+	}
+	if (idx != -1) {
+		for (int i = idx; i < (_max_rules - 1); i++) {
+			_rr_order[i] = _rr_order[i+1];
+		}
+		_last--;
+		if (_next > _last){
+			_next = 0;
+		}
+	}
 }
 
 Packet *
@@ -1002,19 +1059,43 @@ EmpowerQoSManager::empower_wifi_encap(FrameInfo * next_frame) {
 		return 0;
 	}
 
+	click_chatter("%{element} :: %s :: encap",
+									  this,
+									  __func__);
+
 	Packet *p = (Packet *) next_frame->_frame;
 	if (!next_frame) {
 		click_chatter("%{element} :: %s :: The next frame is not valid",
 								  this,
 								  __func__);
 		return 0;
+	} else {
+		click_chatter("%{element} :: %s :: The next frame is valid",
+										  this,
+										  __func__);
+		click_chatter("%{element} :: %s :: Push. Dst %s iface %d",
+													this, __func__,
+													next_frame->_dst.unparse().c_str(),
+													next_frame->_iface);
 	}
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress src = EtherAddress(eh->ether_shost);
 //	EtherAddress dst = EtherAddress(eh->ether_dhost);
 	EtherAddress dst = next_frame->_dst;
 
+		click_chatter("%{element} :: %s :: Push. Dst %s Src %s iface %d",
+											this, __func__,
+											dst.unparse().c_str(),
+											src.unparse().c_str(),
+											next_frame->_iface);
+
 	TxPolicyInfo *tx_policy = _el->get_tx_policies(next_frame->_iface)->lookup(dst);
+
+	click_chatter("%{element} :: %s :: Push. Dst %s Src %s iface %d",
+												this, __func__,
+												dst.unparse().c_str(),
+												src.unparse().c_str(),
+												next_frame->_iface);
 
 	// unicast traffic
 	if (!dst.is_broadcast() && !dst.is_group()) {
