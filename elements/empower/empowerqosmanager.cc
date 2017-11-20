@@ -101,7 +101,7 @@ EmpowerQoSManager::push(int, Packet *p) {
 	// unicast traffic
 	if (!dst.is_broadcast() && !dst.is_group()) {
 		_pushed_unicast_frames++;
-		push_init_time = Timestamp::now().msecval();
+		push_init_time = Timestamp::now().usecval();
 		EmpowerStationState *ess = _el->get_ess(dst);
 
 		if (!ess) {
@@ -182,16 +182,42 @@ EmpowerQoSManager::push(int, Packet *p) {
 //							this, __func__,
 //							ssid.c_str(),
 //							dscp);
+
+		push_middle_time = Timestamp::now().usecval();
+
 		enqueue_unicast_frame(dst, tr_queue, p, ess->_lvap_bssid, ess->_iface_id);
-		push_end_time = Timestamp::now().msecval();
+		push_end_time = Timestamp::now().usecval();
+
+		click_chatter("%{element} :: %s :: enqueue timing: init %lu",
+														this,
+														__func__,
+														enqueue_init_time);
+
+		click_chatter("%{element} :: %s :: enqueue timing: inter %lu",
+																this,
+																__func__,
+																enqueue_middle_time);
+
+		click_chatter("%{element} :: %s :: enqueue timing:  end %lu",
+																this,
+																__func__,
+																enqueue_end_time);
+
 		click_chatter("%{element} :: %s :: Push timing: init %lu",
 														this,
 														__func__,
 														push_init_time);
+
+		click_chatter("%{element} :: %s :: Push timing: inter %lu",
+																this,
+																__func__,
+																push_middle_time);
+
 		click_chatter("%{element} :: %s :: Push timing:  end %lu",
 																this,
 																__func__,
 																push_end_time);
+
 		return;
 	}
 
@@ -405,20 +431,24 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 		_bad_queue_drops++;
 		return;
 	}
+	enqueue_init_time = Timestamp::now().usecval();
 
-	click_chatter("%{element} :: %s :: queue: size %d head %d tail %d empty rules %d",
-																								this,
-																								__func__,
-																								tr_queue->_size,
-																								tr_queue->_head,
-																								tr_queue->_tail,
-																								_empty_traffic_rules);
+//	click_chatter("%{element} :: %s :: queue: size %d head %d tail %d empty rules %d",
+//																			this,
+//																			__func__,
+//																			tr_queue->_size,
+//																			tr_queue->_head,
+//																			tr_queue->_tail,
+//																			_empty_traffic_rules);
 
 	if (_clients_current_frame.find(dst) == _clients_current_frame.end()) {
 //		click_chatter("%{element} :: %s :: frame not in clients hashmap dst %s",
 //												this, __func__,
 //												dst.unparse().c_str());
 		FrameInfo * new_frame = new FrameInfo();
+
+		enqueue_middle_time = Timestamp::now().usecval();
+
 		new_frame->_frame = p->uniqueify();
 		if (!new_frame->_frame) {
 			click_chatter("%{element} :: %s :: The frame does not exist",
@@ -465,10 +495,29 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 
 		if (!dst.is_broadcast() && !dst.is_group())
 			_enqueued_unicast_frames++;
-		_notifier.wake();
-		_sleepiness = 0;
-		click_chatter("%{element} :: %s :: waking up",
-																this, __func__);
+
+		if (_sleepiness >=SLEEPINESS_TRIGGER) {
+			_notifier.wake();
+			_sleepiness = 0;
+//			click_chatter("%{element} :: %s :: waking up",
+//														this, __func__);
+		}
+
+		enqueue_end_time = Timestamp::now().usecval();
+//		click_chatter("%{element} :: %s :: enqueue timing: init %lu",
+//																this,
+//																__func__,
+//																enqueue_start_time);
+//
+//		click_chatter("%{element} :: %s :: enqueue timing: middle %lu",
+//																		this,
+//																		__func__,
+//																		enqueue_middle_time);
+//
+//		click_chatter("%{element} :: %s :: enqueue timing:  end %lu",
+//																		this,
+//																		__func__,
+//																		enqueue_end_time);
 
 	} else {
 
@@ -521,7 +570,7 @@ EmpowerQoSManager::enqueue_unicast_frame(EtherAddress dst, BufferQueue * tr_queu
 			memcpy(current_frame->_frame->data() + current_frame->_frame_length, p->data(), p->length());
 			current_frame->_frame_length += current_frame->_frame->length();
 			current_frame->_msdus++;
-			uint64_t time_now = Timestamp::now().msecval();
+			uint64_t time_now = Timestamp::now().usecval();
 			current_frame->_average_time_diff = std::max(current_frame->_average_time_diff, (time_now - current_frame->_last_frame_time));
 			current_frame->_last_frame_time = time_now;
 			if (!dst.is_broadcast() && !dst.is_group())
@@ -545,22 +594,22 @@ EmpowerQoSManager::pull(int) {
 
 	if (_traffic_rules.size() == _empty_traffic_rules && _sleepiness == SLEEPINESS_TRIGGER) {
 
-		click_chatter("%{element} :: %s :: ----- All the buffer queues are empty: %d sleep %d ----- ",
-										 this,
-										 __func__,
-										 _empty_traffic_rules,
-										 _sleepiness);
+//		click_chatter("%{element} :: %s :: ----- All the buffer queues are empty: %d sleep %d ----- ",
+//										 this,
+//										 __func__,
+//										 _empty_traffic_rules,
+//										 _sleepiness);
 		_sleeping_times++;
 		_notifier.sleep();
 		return 0;
 	} else if (_traffic_rules.size() == _empty_traffic_rules && _sleepiness != SLEEPINESS_TRIGGER) {
-		click_chatter("%{element} :: %s :: -----  sleep %d ----- ",
-												 this,
-												 __func__,
-												 _sleepiness);
+//		click_chatter("%{element} :: %s :: -----  sleep %d ----- ",
+//												 this,
+//												 __func__,
+//												 _sleepiness);
 		 _sleepiness++;
 	}
-	pull_init_time = Timestamp::now().msecval();
+	pull_init_time = Timestamp::now().usecval();
 
 	// TODO. Add ordering in a slice by...? expiration time?
 	while (!delivered_packet && _traffic_rules.size() != _empty_traffic_rules) {
@@ -587,11 +636,11 @@ EmpowerQoSManager::pull(int) {
 			// this frame is discarded
 //			int transm_time = frame_transmission_time(next_frame->_dst, next_frame->_frame_length, next_frame->_iface);
 			int transm_time = 300;
-			click_chatter("%{element} :: %s :: ----- First packet. Deficit %d, transm time %d----- ",
-																			 this,
-																			 __func__,
-																			 tr_queue->_deficit,
-																			 transm_time);
+//			click_chatter("%{element} :: %s :: ----- First packet. Deficit %d, transm time %d----- ",
+//																			 this,
+//																			 __func__,
+//																			 tr_queue->_deficit,
+//																			 transm_time);
 			if (!tr_queue->_deadline_discard ||
 					(tr_queue->_deadline_discard && !tr_queue->check_delay_deadline(next_frame, transm_time))) {
 				// If it is the first time of this queue and it is not empty, a new deficit must be assigned
@@ -600,12 +649,12 @@ EmpowerQoSManager::pull(int) {
 					//slice->_quantum = 1000; // TODO. CHANGE OF COURSE
 					tr_queue->_deficit += tr_queue->_quantum;
 					tr_queue->_first_pkt = false;
-					click_chatter("%{element} :: %s :: ----- First packet. Adding deficit. Deficit %d, quantum %d transm time %d----- ",
-																 this,
-																 __func__,
-																 tr_queue->_deficit,
-																 tr_queue->_quantum,
-																 transm_time);
+//					click_chatter("%{element} :: %s :: ----- First packet. Adding deficit. Deficit %d, quantum %d transm time %d----- ",
+//																 this,
+//																 __func__,
+//																 tr_queue->_deficit,
+//																 tr_queue->_quantum,
+//																 transm_time);
 				}
 				if (tr_queue->_deficit >= transm_time) {
 					delivered_packet = true;
@@ -630,25 +679,25 @@ EmpowerQoSManager::pull(int) {
 						break;
 					}
 
-					uint64_t time_now = Timestamp::now().msecval();
+					uint64_t time_now = Timestamp::now().usecval();
 					uint64_t elapsed_time = (time_now - next_frame->_arrival_time);
 
-					click_chatter("%{element} :: %s :: ----- PULL in traffic rule queue (%d, %s) for station  %s. Remaining deficit %d. "
-							"Remaining packets %d (Consumption: time %d packets %d msdus %d bytes %d now %lu arrival %lu difference %lu ---- ",
-																			 this,
-																			 __func__,
-																			 queue_info._dscp,
-																			 queue_info._tenant.c_str(),
-																			 dst.unparse().c_str(),
-																			 tr_queue->_deficit,
-																			 tr_queue->_size,
-																			 tr_queue->_total_consumed_time,
-																			 tr_queue->_transmitted_packets,
-																			 tr_queue->_transmitted_msdus,
-																			 tr_queue->_transmitted_bytes,
-																			 time_now,
-																			 next_frame->_arrival_time,
-																			 elapsed_time);
+//					click_chatter("%{element} :: %s :: ----- PULL in traffic rule queue (%d, %s) for station  %s. Remaining deficit %d. "
+//							"Remaining packets %d (Consumption: time %d packets %d msdus %d bytes %d now %lu arrival %lu difference %lu ---- ",
+//																			 this,
+//																			 __func__,
+//																			 queue_info._dscp,
+//																			 queue_info._tenant.c_str(),
+//																			 dst.unparse().c_str(),
+//																			 tr_queue->_deficit,
+//																			 tr_queue->_size,
+//																			 tr_queue->_total_consumed_time,
+//																			 tr_queue->_transmitted_packets,
+//																			 tr_queue->_transmitted_msdus,
+//																			 tr_queue->_transmitted_bytes,
+//																			 time_now,
+//																			 next_frame->_arrival_time,
+//																			 elapsed_time);
 
 
 					if (tr_queue->_size == 0) {
@@ -660,17 +709,17 @@ EmpowerQoSManager::pull(int) {
 							_next = 0;
 						}
 					}
-					click_chatter("%{element} :: %s :: queue: size %d head %d tail %d empty rules %d",
-																							this,
-																							__func__,
-																							tr_queue->_size,
-																							tr_queue->_head,
-																							tr_queue->_tail,
-																							_empty_traffic_rules);
+//					click_chatter("%{element} :: %s :: queue: size %d head %d tail %d empty rules %d",
+//																							this,
+//																							__func__,
+//																							tr_queue->_size,
+//																							tr_queue->_head,
+//																							tr_queue->_tail,
+//																							_empty_traffic_rules);
 
 					if (!dst.is_broadcast() && !dst.is_group()) {
 						_pulled_frames++;
-						pull_end_time = Timestamp::now().msecval();
+						pull_end_time = Timestamp::now().usecval();
 						click_chatter("%{element} :: %s :: Pull timing: init %lu",
 																		this,
 																		__func__,
@@ -684,11 +733,11 @@ EmpowerQoSManager::pull(int) {
 					Packet * output = empower_wifi_encap(next_frame);
 					return output;
 				} else {
-					click_chatter("%{element} :: %s :: no time. time needed %d deficit",
-																		this,
-																		__func__,
-																		transm_time,
-																		tr_queue->_deficit);
+//					click_chatter("%{element} :: %s :: no time. time needed %d deficit",
+//																		this,
+//																		__func__,
+//																		transm_time,
+//																		tr_queue->_deficit);
 
 					break;
 				}
@@ -701,13 +750,13 @@ EmpowerQoSManager::pull(int) {
 				tr_queue->discard_frame(next_frame);
 			}
 		}
-
-		click_chatter("%{element} :: %s :: scheduler: next %d last %d max rules %d",
-																				this,
-																				__func__,
-																				_next,
-																				_last,
-																				_max_rules);
+//
+//		click_chatter("%{element} :: %s :: scheduler: next %d last %d max rules %d",
+//																				this,
+//																				__func__,
+//																				_next,
+//																				_last,
+//																				_max_rules);
 
 		tr_queue->_first_pkt = true;
 		_next++;
@@ -1059,9 +1108,9 @@ EmpowerQoSManager::empower_wifi_encap(FrameInfo * next_frame) {
 		return 0;
 	}
 
-	click_chatter("%{element} :: %s :: encap",
-									  this,
-									  __func__);
+//	click_chatter("%{element} :: %s :: encap",
+//									  this,
+//									  __func__);
 
 	Packet *p = (Packet *) next_frame->_frame;
 	if (!next_frame) {
@@ -1069,33 +1118,26 @@ EmpowerQoSManager::empower_wifi_encap(FrameInfo * next_frame) {
 								  this,
 								  __func__);
 		return 0;
-	} else {
-		click_chatter("%{element} :: %s :: The next frame is valid",
-										  this,
-										  __func__);
-		click_chatter("%{element} :: %s :: Push. Dst %s iface %d",
-													this, __func__,
-													next_frame->_dst.unparse().c_str(),
-													next_frame->_iface);
 	}
+
 	click_ether *eh = (click_ether *) p->data();
 	EtherAddress src = EtherAddress(eh->ether_shost);
 //	EtherAddress dst = EtherAddress(eh->ether_dhost);
 	EtherAddress dst = next_frame->_dst;
 
-		click_chatter("%{element} :: %s :: Push. Dst %s Src %s iface %d",
-											this, __func__,
-											dst.unparse().c_str(),
-											src.unparse().c_str(),
-											next_frame->_iface);
+//		click_chatter("%{element} :: %s :: Push. Dst %s Src %s iface %d",
+//											this, __func__,
+//											dst.unparse().c_str(),
+//											src.unparse().c_str(),
+//											next_frame->_iface);
 
 	TxPolicyInfo *tx_policy = _el->get_tx_policies(next_frame->_iface)->lookup(dst);
 
-	click_chatter("%{element} :: %s :: Push. Dst %s Src %s iface %d",
-												this, __func__,
-												dst.unparse().c_str(),
-												src.unparse().c_str(),
-												next_frame->_iface);
+//	click_chatter("%{element} :: %s :: Push. Dst %s Src %s iface %d",
+//												this, __func__,
+//												dst.unparse().c_str(),
+//												src.unparse().c_str(),
+//												next_frame->_iface);
 
 	// unicast traffic
 	if (!dst.is_broadcast() && !dst.is_group()) {

@@ -37,8 +37,8 @@ public:
 	EtherAddress _bssid;
 	int _iface;
 	FrameInfo() {
-		_arrival_time = Timestamp::now().msecval();
-		_last_frame_time = Timestamp::now().msecval();
+		_arrival_time = Timestamp::now().usecval();
+		_last_frame_time = Timestamp::now().usecval();
 		_complete = false;
 		_average_time_diff = 0; // It should be the time needed to transmit this frame
 		_frame_length = 0;
@@ -301,7 +301,7 @@ public:
 	}
 
 	bool check_delay_deadline(FrameInfo *frame, int transmission_time) {
-		uint64_t time_now = Timestamp::now().msecval();
+		uint64_t time_now = Timestamp::now().usecval();
 		uint64_t elapsed_time = (time_now - frame->_arrival_time);
 		if ((elapsed_time + transmission_time) > _max_delay)
 			return true;
@@ -418,8 +418,9 @@ class EmpowerQoSManager : public SimpleQueue { public:
     int _pushed_unicast_frames;
     int _sleeping_times;
 
-    uint64_t push_init_time, push_end_time;
+    uint64_t push_init_time, push_middle_time, push_end_time;
     uint64_t pull_init_time, pull_end_time;
+    uint64_t enqueue_init_time, enqueue_middle_time, enqueue_end_time;
 
     int compute_deficit(Packet*);
     static int write_handler(const String &, Element *, void *, ErrorHandler *);
