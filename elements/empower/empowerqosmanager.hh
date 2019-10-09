@@ -12,9 +12,9 @@
 #include <click/straccum.hh>
 #include <clicknet/wifi.h>
 #include <clicknet/llc.h>
-#include <click/args.hh>
-#include <click/error.hh>
 #include <elements/standard/simplequeue.hh>
+#include <elements/wifi/transmissionpolicy.hh>
+#include <elements/wifi/minstrel.hh>
 CLICK_DECLS
 
 /*
@@ -63,216 +63,74 @@ class EtherPair {
     }
 
     inline hashcode_t hashcode() const {
-    		return CLICK_NAME(hashcode)(_ra) + CLICK_NAME(hashcode)(_ta);
+            return CLICK_NAME(hashcode)(_ra) + CLICK_NAME(hashcode)(_ta);
     }
 
     inline bool operator==(EtherPair other) const {
-    		return (other._ra == _ra && other._ta == _ta);
+            return (other._ra == _ra && other._ta == _ta);
     }
 
     inline bool operator!=(EtherPair other) const {
-    		return (other._ra != _ra || other._ta != _ta);
+            return (other._ra != _ra || other._ta != _ta);
     }
 
-	String unparse() {
-		StringAccum result;
-		result << "(" << _ra.unparse() << ", " << _ta.unparse() << ")";
-		return result.take_string();
-	}
+    String unparse() {
+        StringAccum result;
+        result << "(" << _ra.unparse() << ", " << _ta.unparse() << ")";
+        return result.take_string();
+    }
 
 };
+
+class EmpowerQOSManager;
 
 class AggregationQueue {
 
 public:
-	uint32_t _quantum;
-	WritablePacket * _amsdu;
-	uint32_t _current_amsdu_frames;
-
-	AggregationQueue(uint32_t capacity, EtherPair pair) {
-		_q = new Packet*[capacity];
-		_deficit = 0;
-		_quantum = 0;
-		_capacity = capacity;
-		_pair = pair;
-		_nb_pkts = 0;
-		_drops = 0;
-		_head = 0;
-		_tail = 0;
-		_amsdu = 0;
-		_current_amsdu_frames = 0;
-		for (unsigned i = 0; i < _capacity; i++) {
-			_q[i] = 0;
-		}
-	}
-
-	String unparse() {
-		StringAccum result;
-		_queue_lock.acquire_read();
-		result << _pair.unparse() << " -> status: " << _nb_pkts << "/" << _capacity << "\n";
-		_queue_lock.release_read();
-		return result.take_string();
-	}
-
-	~AggregationQueue() {
-		_queue_lock.acquire_write();
-		for (uint32_t i = 0; i < _capacity; i++) {
-			if (_q[i]) {
-				_q[i]->kill();
-			}
-		}
-		delete[] _q;
-
-		if (_amsdu) {
-		    _amsdu->kill();
-		}
-
-		_queue_lock.release_write();
-	}
-
-	Packet* pull() {
-		Packet* p = 0;
-		_queue_lock.acquire_write();
-		if (_nb_pkts > 0) {
-			p = _q[_head];
-			_q[_head] = 0;
-			_head++;
-			_head %= _capacity;
-			_nb_pkts--;
-		}
-		_queue_lock.release_write();
-		return p;
-	}
-
-	bool push(Packet* p) {
-		bool result = false;
-		_queue_lock.acquire_write();
-		if (_nb_pkts == _capacity) {
-			_drops++;
-			result = false;
-		} else {
-			_q[_tail] = p;
-			_tail++;
-			_tail %= _capacity;
-			_nb_pkts++;
-			result = true;
-		}
-		_queue_lock.release_write();
-		return result;
-	}
-
-    const Packet* top() {
-      Packet* p = 0;
-      _queue_lock.acquire_write();
-      if(_head != _tail) {
-        p = _q[(_head+1) % _capacity];
-      }
-      _queue_lock.release_write();
-      return p;
-    }
-
-	uint32_t top_length() {
-	    const Packet* p = top();
-
-	    if (p) {
-	        return top()->length();
-	    }
-
-	    return 0;
-	}
-
-    uint32_t nb_pkts() { return _nb_pkts; }
-    EtherPair pair() { return _pair; }
-
-private:
-
-	ReadWriteLock _queue_lock;
-	Packet** _q;
-
-	uint32_t _capacity;
-	uint32_t _deficit;
-	EtherPair _pair;
-	uint32_t _nb_pkts;
-	uint32_t _drops;
-	uint32_t _head;
-	uint32_t _tail;
-};
-
-typedef HashTable<EtherPair, AggregationQueue*> AggregationQueues;
-typedef AggregationQueues::iterator AQIter;
-
-class Slice {
-  public:
-
-    String _ssid;
-    int _dscp;
-
-    Slice() : _ssid(""), _dscp(0) {
-    }
-
-    Slice(String ssid, int dscp) : _ssid(ssid), _dscp(dscp) {
-    }
-
-    inline hashcode_t hashcode() const {
-    		return CLICK_NAME(hashcode)(_ssid) + CLICK_NAME(hashcode)(_dscp);
-    }
-
-    inline bool operator==(Slice other) const {
-    		return (other._ssid == _ssid && other._dscp == _dscp);
-    }
-
-    inline bool operator!=(Slice other) const {
-    		return (other._ssid != _ssid || other._dscp != _dscp);
-    }
-
-	String unparse() {
-		StringAccum result;
-		result << _ssid << ":" << _dscp;
-		return result.take_string();
-	}
-
-};
-
-class SliceQueue {
-
-public:
-
-    AggregationQueues _queues;
-	Vector<EtherPair> _active_list;
-
-	Slice _slice;
-    uint32_t _capacity;
-    uint32_t _size;
-    uint32_t _drops;
-    uint32_t _deficit;
     uint32_t _quantum;
-    bool _amsdu_aggregation;
-    uint32_t _max_aggr_length;
-    uint32_t _deficit_used;
-    uint32_t _max_queue_length;
-    uint32_t _tx_packets;
-    uint32_t _tx_bytes;
-    uint32_t _scheduler;
 
-    SliceQueue(Slice slice, uint32_t capacity, uint32_t quantum, bool amsdu_aggregation, uint32_t scheduler) :
-                _slice(slice), _capacity(capacity), _size(0), _drops(0), _deficit(0),
-                _quantum(quantum), _amsdu_aggregation(amsdu_aggregation), _max_aggr_length(2304),
-                _deficit_used(0), _max_queue_length(0), _tx_packets(0), _tx_bytes(0), _scheduler(scheduler) {
-	}
+    AggregationQueue(uint32_t capacity, EtherPair pair) {
+        _q = new Packet*[capacity];
+        //_amsdu = 0;
+        _deficit = 0;
+        _quantum = 0;
+        _capacity = capacity;
+        _pair = pair;
+        _nb_pkts = 0;
+        _drops = 0;
+        _head = 0;
+        _tail = 0;
+        for (unsigned i = 0; i < _capacity; i++) {
+            _q[i] = 0;
+        }
+    }
 
-	~SliceQueue() {
-		AQIter itr = _queues.begin();
-		while (itr != _queues.end()) {
-			AggregationQueue *aq = itr.value();
-			delete aq;
-			itr++;
-		}
-		_queues.clear();
-	}
+    String unparse() {
+        StringAccum result;
+        _queue_lock.acquire_read();
+        result << _pair.unparse() << " -> status: " << _nb_pkts << "/" << _capacity << " drops: " << _drops << "\n";
+        _queue_lock.release_read();
+        return result.take_string();
+    }
 
-	uint32_t size() { return _size; }
+    ~AggregationQueue() {
+        _queue_lock.acquire_write();
+        for (uint32_t i = 0; i < _capacity; i++) {
+            if (_q[i]) {
+                _q[i]->kill();
+            }
+        }
+        delete[] _q;
+        //if (_amsdu) {
+        //    _amsdu->kill();
+        //}
+        _queue_lock.release_write();
+    }
 
-    Packet * wifi_encap(Packet *p, EtherAddress ra, EtherAddress sa, EtherAddress ta) {
+    Packet * wifi_encap(Packet *p) {
+
+        click_ether *eh = (click_ether *) p->data();
+        EtherAddress sa = EtherAddress(eh->ether_shost);
 
         WritablePacket *q = p->uniqueify();
 
@@ -296,7 +154,7 @@ public:
         memcpy(q->data(), WIFI_LLC_HEADER, WIFI_LLC_HEADER_LEN);
         memcpy(q->data() + 6, &ethtype, 2);
 
-        q = q->push(sizeof(struct click_wifi));
+        q = q->push(sizeof(struct click_wifi) + sizeof(struct click_qos_control));
 
         if (!q) {
             q->kill();
@@ -305,244 +163,407 @@ public:
 
         struct click_wifi *w = (struct click_wifi *) q->data();
 
-        memset(q->data(), 0, sizeof(click_wifi));
+        memset(q->data(), 0, sizeof(click_wifi) + sizeof(struct click_qos_control));
 
-        w->i_fc[0] = (uint8_t) (WIFI_FC0_VERSION_0 | WIFI_FC0_TYPE_DATA | WIFI_FC0_SUBTYPE_DATA);
+        w->i_fc[0] = (uint8_t) (WIFI_FC0_VERSION_0 | WIFI_FC0_TYPE_DATA | WIFI_FC0_SUBTYPE_QOS);
         w->i_fc[1] = 0;
         w->i_fc[1] |= (uint8_t) (WIFI_FC1_DIR_MASK & mode);
 
-        memcpy(w->i_addr1, ra.data(), 6);
-        memcpy(w->i_addr2, ta.data(), 6);
+        memcpy(w->i_addr1, _pair._ra.data(), 6);
+        memcpy(w->i_addr2, _pair._ta.data(), 6);
         memcpy(w->i_addr3, sa.data(), 6);
 
         return q;
+
     }
 
-    WritablePacket * msdu_encap(WritablePacket *amsdu, uint32_t &current_amsdu_frames, Packet *p, EtherAddress ra, EtherAddress sa, EtherAddress ta) {
+    Packet* pull(bool encap) {
+
+        Packet* p = 0;
+
+        _queue_lock.acquire_write();
+
+        if (_nb_pkts > 0) {
+            p = _q[_head];
+            _q[_head] = 0;
+            _head++;
+            _head %= _capacity;
+            _nb_pkts--;
+        }
+
+        _queue_lock.release_write();
+
+        if (!p) {
+            return 0;
+        }
+
+        if (!encap) {
+            return p;
+        }
+
+        return wifi_encap(p);
+
+    }
+
+    WritablePacket * amsdu_encap(WritablePacket *q, Packet *p) {
+
+        click_ether *eh = (click_ether *) p->data();
+        EtherAddress sa = EtherAddress(eh->ether_shost);
 
         // The A-MSDU did not exist so far
-        if (current_amsdu_frames == 0) {
+        if (!q) {
 
-            amsdu = p->uniqueify();
+            q = p->uniqueify();
 
-            if (!amsdu) {
+            if (!q) {
                 return 0;
             }
 
             uint8_t mode = WIFI_FC1_DIR_FROMDS;
             uint16_t ethtype;
 
-            memcpy(&ethtype, amsdu->data() + 12, 2);
+            memcpy(&ethtype, q->data() + 12, 2);
 
-            amsdu->pull(sizeof(struct click_ether));
-            amsdu = amsdu->push(sizeof(struct click_llc));
+            q->pull(sizeof(struct click_ether));
+            q = q->push(sizeof(struct click_llc));
 
-            if (!amsdu) {
+            if (!q) {
                 return 0;
             }
 
-            memcpy(amsdu->data(), WIFI_LLC_HEADER, WIFI_LLC_HEADER_LEN);
-            memcpy(amsdu->data() + 6, &ethtype, 2);
+            memcpy(q->data(), WIFI_LLC_HEADER, WIFI_LLC_HEADER_LEN);
+            memcpy(q->data() + 6, &ethtype, 2);
 
             // First A-MSDU subframe
-            amsdu = amsdu->push(sizeof(struct click_wifi_amsdu_subframe_header));
+            q = q->push(sizeof(struct click_wifi_amsdu_subframe_header));
 
-            if (!amsdu) {
+            if (!q) {
                 return 0;
             }
 
-            struct click_wifi_amsdu_subframe_header *wa = (struct click_wifi_amsdu_subframe_header *) (amsdu->data());
-            memset(amsdu->data(), 0, sizeof(click_wifi_amsdu_subframe_header));
+            struct click_wifi_amsdu_subframe_header *wa = (struct click_wifi_amsdu_subframe_header *) (q->data());
+            memset(q->data(), 0, sizeof(click_wifi_amsdu_subframe_header));
 
-            memcpy(wa->da, ra.data(), 6);
+            memcpy(wa->da, _pair._ra.data(), 6);
             memcpy(wa->sa, sa.data(), 6);
 
-            uint16_t len = (uint16_t) (amsdu->length() - sizeof(click_wifi_amsdu_subframe_header));
+            uint16_t len = (uint16_t) (q->length() - sizeof(click_wifi_amsdu_subframe_header));
             wa->len = htons(len);
 
             // QoS Control field for enabling A-MSDU aggregation
-            amsdu = amsdu->push((sizeof(struct click_wifi) + sizeof(struct click_qos_control)));
+            q = q->push((sizeof(struct click_wifi) + sizeof(struct click_qos_control)));
 
-            if (!amsdu) {
+            if (!q) {
                 return 0;
             }
 
-            struct click_wifi *w = (struct click_wifi *) amsdu->data();
-            memset(amsdu->data(), 0, sizeof(click_wifi));
+            struct click_wifi *w = (struct click_wifi *) q->data();
+            memset(q->data(), 0, sizeof(click_wifi));
 
             w->i_fc[0] = (uint8_t) (WIFI_FC0_VERSION_0 | (WIFI_FC0_TYPE_DATA | WIFI_FC0_SUBTYPE_QOS));
             w->i_fc[1] = 0;
             w->i_fc[1] |= (uint8_t) (WIFI_FC1_DIR_MASK & mode);
 
-            memcpy(w->i_addr1, ra.data(), 6);
-            memcpy(w->i_addr2, ta.data(), 6);
+            memcpy(w->i_addr1, _pair._ra.data(), 6);
+            memcpy(w->i_addr2, _pair._ta.data(), 6);
             memcpy(w->i_addr3, sa.data(), 6);
 
-            struct click_qos_control *z = (struct click_qos_control *) (amsdu->data() + sizeof(click_wifi));
-            memset(amsdu->data()  + sizeof(click_wifi), 0, sizeof(click_qos_control));
+            struct click_qos_control *z = (struct click_qos_control *) (q->data() + sizeof(click_wifi));
+            memset(q->data()  + sizeof(click_wifi), 0, sizeof(click_qos_control));
 
             z->qos_control = (uint16_t) WIFI_QOS_CONTROL_QOS_AMSDU_PRESENT_MASK;
 
-            current_amsdu_frames++;
+            return q;
 
-            return amsdu;
         }
 
         uint16_t ethtype;
-        WritablePacket *q = p->uniqueify();
-        WritablePacket *aggr_amsdu = amsdu->uniqueify();
+        WritablePacket *z = p->uniqueify();
 
-        memcpy(&ethtype, q->data() + 12, 2);
-        q->pull(sizeof(struct click_ether));
-        q = q->push(sizeof(struct click_llc));
+        memcpy(&ethtype, z->data() + 12, 2);
+        z->pull(sizeof(struct click_ether));
+        z = z->push(sizeof(struct click_llc));
 
-        if (!q) {
+        if (!z) {
             return 0;
         }
 
-        memcpy(q->data(), WIFI_LLC_HEADER, WIFI_LLC_HEADER_LEN);
-        memcpy(q->data() + 6, &ethtype, 2);
+        // LLC
+        memcpy(z->data(), WIFI_LLC_HEADER, WIFI_LLC_HEADER_LEN);
+        memcpy(z->data() + 6, &ethtype, 2);
 
         // A-MSDU substructure creation
-        q = q->push(sizeof(struct click_wifi_amsdu_subframe_header));
-        if (!q) {
+        z = z->push(sizeof(struct click_wifi_amsdu_subframe_header));
+
+        if (!z) {
             return 0;
         }
 
-        struct click_wifi_amsdu_subframe_header *w = (struct click_wifi_amsdu_subframe_header *) (q->data());
-        memset(q->data(), 0, sizeof(click_wifi_amsdu_subframe_header));
+        struct click_wifi_amsdu_subframe_header *w = (struct click_wifi_amsdu_subframe_header *) (z->data());
+        memset(z->data(), 0, sizeof(click_wifi_amsdu_subframe_header));
 
-        uint16_t len = (uint16_t) (q->length() - sizeof(click_wifi_amsdu_subframe_header));
+        uint16_t len = (uint16_t) (z->length() - sizeof(click_wifi_amsdu_subframe_header));
 
-        memcpy(w->da, ra.data(), 6);
+        memcpy(w->da, _pair._ra.data(), 6);
         memcpy(w->sa, sa.data(), 6);
         w->len = htons(len);
 
-        uint32_t current_length = amsdu->length();
-        aggr_amsdu = aggr_amsdu->put(q->length());
-        if (!aggr_amsdu) {
+        uint32_t current_length = q->length();
+
+        q = q->put(z->length());
+
+        if (!q) {
             return 0;
         }
 
-        memcpy((aggr_amsdu->data() + current_length), q->data(), q->length());
+        memcpy((q->data() + current_length), z->data(), z->length());
 
-        current_amsdu_frames++;
-        q->kill();
+        z->kill();
 
-        return aggr_amsdu;
+        return q;
+
     }
+
+    Packet* aggregate(WritablePacket *q, uint16_t max_amsdu_length, uint32_t &queue_size) {
+
+        Packet* p = pull(false);
+
+        if (!p) {
+            if (q)
+                click_chatter("This should not happen");
+            return q;
+        }
+
+        // Keep track of the MSDU size in case we need to add padding
+        uint32_t msdu_length = p->length() + 8; // click_wifi_amsdu_subframe_header + click_llc - click_ether
+
+        // Append to _amsdu packet
+        q = amsdu_encap(q, p);
+        queue_size--;
+
+        if (top() && (q->length() + top()->length() + 8 + 35) <= max_amsdu_length) {
+
+            uint16_t padding = calculate_padding(msdu_length);
+
+            q = q->put(padding);
+            memset(q->end_data(), 0, padding);
+
+            if (!q) {
+                return 0;
+            }
+
+            return aggregate(q, max_amsdu_length, queue_size);
+
+        } else {
+            return q;
+
+        }
+
+    }
+
+    uint16_t calculate_padding(uint32_t amsdu_size) {
+        uint16_t padding = (4 - (amsdu_size % 4)) % 4;
+        return padding;
+    }
+
+    bool push(Packet* p) {
+        bool result = false;
+        _queue_lock.acquire_write();
+        if (_nb_pkts == _capacity) {
+            _drops++;
+            result = false;
+        } else {
+            _q[_tail] = p;
+            _tail++;
+            _tail %= _capacity;
+            _nb_pkts++;
+            result = true;
+        }
+        _queue_lock.release_write();
+        return result;
+    }
+
+    const Packet* top() {
+      Packet* p = 0;
+      _queue_lock.acquire_write();
+      if(_head != _tail) {
+        p = _q[(_head) % _capacity];
+      }
+      _queue_lock.release_write();
+      return p;
+    }
+
+    uint32_t nb_pkts() { return _nb_pkts; }
+
+private:
+
+    ReadWriteLock _queue_lock;
+    Packet** _q;
+
+    uint32_t _capacity;
+    uint32_t _deficit;
+    EtherPair _pair;
+    uint32_t _nb_pkts;
+    uint32_t _drops;
+    uint32_t _head;
+    uint32_t _tail;
+
+};
+
+typedef HashTable<EtherPair, AggregationQueue*> AggregationQueues;
+typedef AggregationQueues::iterator AQIter;
+
+class Slice {
+  public:
+
+    String _ssid;
+    int _dscp;
+
+    Slice() : _ssid(""), _dscp(0) {
+    }
+
+    Slice(String ssid, int dscp) : _ssid(ssid), _dscp(dscp) {
+    }
+
+    inline hashcode_t hashcode() const {
+            return CLICK_NAME(hashcode)(_ssid) + CLICK_NAME(hashcode)(_dscp);
+    }
+
+    inline bool operator==(Slice other) const {
+            return (other._ssid == _ssid && other._dscp == _dscp);
+    }
+
+    inline bool operator!=(Slice other) const {
+            return (other._ssid != _ssid || other._dscp != _dscp);
+    }
+
+    String unparse() {
+        StringAccum result;
+        result << _ssid << ":" << _dscp;
+        return result.take_string();
+    }
+
+};
+
+class SliceQueue {
+
+public:
+
+    AggregationQueues _queues;
+    Vector<EtherPair> _active_list;
+    Minstrel * _rc;
+
+    Slice _slice;
+    uint32_t _capacity;
+    uint32_t _size;
+    uint32_t _drops;
+    uint32_t _deficit;
+    uint32_t _quantum;
+    bool _amsdu_aggregation;
+    uint32_t _max_aggr_length;
+    uint32_t _deficit_used;
+    uint32_t _max_queue_length;
+    uint32_t _tx_packets;
+    uint32_t _tx_bytes;
+    uint32_t _scheduler;
+
+    SliceQueue(Minstrel * rc, Slice slice, uint32_t capacity, uint32_t quantum, bool amsdu_aggregation, uint32_t max_aggr_length, uint32_t scheduler) :
+        _rc(rc), _slice(slice), _capacity(capacity), _size(0), _drops(0), _deficit(0),
+        _quantum(quantum), _amsdu_aggregation(amsdu_aggregation), _max_aggr_length(max_aggr_length),
+        _deficit_used(0), _max_queue_length(0), _tx_packets(0), _tx_bytes(0), _scheduler(scheduler) {
+    }
+
+    ~SliceQueue() {
+        AQIter itr = _queues.begin();
+        while (itr != _queues.end()) {
+            AggregationQueue *aq = itr.value();
+            delete aq;
+            itr++;
+        }
+        _queues.clear();
+    }
+
+    uint32_t size() { return _size; }
 
     bool enqueue(Packet *p, EtherAddress ra, EtherAddress ta) {
 
-    	EtherPair pair = EtherPair(ra, ta);
+        EtherPair pair = EtherPair(ra, ta);
 
-		if (_queues.find(pair) == _queues.end()) {
-			AggregationQueue *queue = new AggregationQueue(_capacity, pair);
-			_queues.set(pair, queue);
-			_active_list.push_back(pair);
-		}
+        if (_queues.find(pair) == _queues.end()) {
+            AggregationQueue *queue = new AggregationQueue(_capacity, pair);
+            _queues.set(pair, queue);
+           // _active_list.push_back(pair);
+        }
 
-		AggregationQueue *queue = _queues.get(pair);
+        AggregationQueue *queue = _queues.get(pair);
 
-		if (queue->push(p)) {
-			// check if ra is in active list
-			if (find(_active_list.begin(), _active_list.end(), pair) == _active_list.end()) {
-				_active_list.push_back(pair);
-			}
-			if (queue->nb_pkts() > _max_queue_length) {
-				_max_queue_length = queue->nb_pkts();
-			}
-			 _size++;
-			return true;
-		}
+        if (queue->push(p)) {
+            // check if ra is in active list
+            if (find(_active_list.begin(), _active_list.end(), pair) == _active_list.end()) {
+                _active_list.push_back(pair);
+            }
+            if (queue->nb_pkts() > _max_queue_length) {
+                _max_queue_length = queue->nb_pkts();
+            }
+             _size++;
+            return true;
+        }
 
-		_drops++;
-		return false;
+        _drops++;
+        return false;
 
     }
 
     Packet *dequeue() {
 
-            if (_active_list.empty()) {
-                return 0;
-            }
+        if (_active_list.empty()) {
+            return 0;
+        }
 
-            EtherPair pair = _active_list[0];
-            _active_list.pop_front();
+        EtherPair pair = _active_list[0];
+        _active_list.pop_front();
 
-            AQIter active = _queues.find(pair);
-            AggregationQueue* queue = active.value();
+        AQIter active = _queues.find(pair);
+        AggregationQueue* queue = active.value();
 
-            Packet *p = queue->pull();
+        Packet *p = 0;
 
-            if (!p) {
-                return dequeue();
-            }
+        if (_amsdu_aggregation) {
+            WritablePacket *q = 0;
 
+            TxPolicyInfo *tx_policy = _rc->tx_policies()->lookup(pair._ra);
+            p = queue->aggregate(q, tx_policy->_max_amsdu_len, _size);
+        } else {
             _size--;
-            click_ether *eh = (click_ether *) p->data();
-            EtherAddress src = EtherAddress(eh->ether_shost);
+            p = queue->pull(true);
+        }
 
-            if (_amsdu_aggregation) {
-                // Allowing a single A-MSDU
-                uint32_t p_length = (p->length() - sizeof(click_ether) + sizeof(click_wifi_amsdu_subframe_header));
-                queue->_amsdu = msdu_encap(queue->_amsdu, queue->_current_amsdu_frames, p, queue->pair()._ra, src, queue->pair()._ta);
+        if (!p) {
+            return dequeue();
+        }
 
-                if (queue->top() && !max_aggr_exceeded(queue->_amsdu, queue->top_length(), 3)) {
-
-                    _active_list.push_front(pair);
-
-                    // Add padding if more frames are needed
-                    uint16_t padding = calculate_padding(p_length);
-                    queue->_amsdu = queue->_amsdu->put(padding);
-                    if (!queue->_amsdu) {
-                        queue->_amsdu->kill();
-                        return 0;
-                    }
-                    return dequeue();
-                } else {
-                    _active_list.push_back(pair);
-
-                   if (queue->_amsdu) {
-                       Packet *aggr = queue->_amsdu;
-                       queue->_current_amsdu_frames = 0;
-                       queue->_amsdu = 0;
-                       return aggr;
-                   }
-                   return 0;
-                }
-            }
-            p = wifi_encap(p, queue->pair()._ra, src, queue->pair()._ta);
+        if (queue->nb_pkts() > 0 && find(_active_list.begin(), _active_list.end(), pair) == _active_list.end()) {
             _active_list.push_back(pair);
-
-            return p;
         }
 
-    uint16_t calculate_padding (uint32_t amsdu_size) {
-        uint16_t padding = (4 - (amsdu_size % 4 )) % 4;
-        return padding;
+        return p;
+
     }
 
-    bool max_aggr_exceeded (Packet * p, uint32_t next_length, uint32_t padding) {
-        if ((p->length() + next_length + padding) > _max_aggr_length) {
-            return true;
+    String unparse() {
+        StringAccum result;
+        result << _slice.unparse();
+        result << " -> capacity: " << _capacity << ", ";
+        result << "quantum: " << _quantum << ", ";
+        result << "drops: " << _drops << "\n";
+        AQIter itr = _queues.begin();
+        while (itr != _queues.end()) {
+            AggregationQueue *aq = itr.value();
+            result << "  " << aq->unparse();
+            itr++;
         }
-        return false;
+        return result.take_string();
     }
-
-	String unparse() {
-		StringAccum result;
-		result << _slice.unparse();
-		result << " -> capacity: " << _capacity << ", ";
-		result << "quantum: " << _quantum << "\n";
-		AQIter itr = _queues.begin();
-		while (itr != _queues.end()) {
-			AggregationQueue *aq = itr.value();
-			result << "  " << aq->unparse();
-			itr++;
-		}
-		return result.take_string();
-	}
 
 };
 
@@ -556,39 +577,40 @@ class EmpowerQOSManager: public Element {
 
 public:
 
-	EmpowerQOSManager();
-	~EmpowerQOSManager();
+    EmpowerQOSManager();
+    ~EmpowerQOSManager();
 
-	const char *class_name() const { return "EmpowerQOSManager"; }
-	const char *port_count() const { return PORTS_1_1; }
-	const char *processing() const { return PUSH_TO_PULL; }
+    const char *class_name() const { return "EmpowerQOSManager"; }
+    const char *port_count() const { return PORTS_1_1; }
+    const char *processing() const { return PUSH_TO_PULL; }
     void *cast(const char *);
 
-	int configure(Vector<String> &, ErrorHandler *);
+    int configure(Vector<String> &, ErrorHandler *);
 
-	void push(int, Packet *);
-	Packet *pull(int);
+    void push(int, Packet *);
+    Packet *pull(int);
 
-	void add_handlers();
-	void set_default_slice(String);
-	void set_slice(String, int, uint32_t, bool, uint32_t);
-	void del_slice(String, int);
+    void add_handlers();
+    void set_default_slice(String);
+    void set_slice(String, int, uint32_t, bool, uint32_t, uint32_t);
+    void del_slice(String, int);
 
-	Slices * slices() { return &_slices; }
+    Slices * slices() { return &_slices; }
+    Minstrel * rc() {return _rc;}
 
 private:
 
-	ReadWriteLock _lock;
+    ReadWriteLock _lock;
 
     enum { SLEEPINESS_TRIGGER = 9 };
 
     ActiveNotifier _empty_note;
-	class EmpowerLVAPManager *_el;
-	class Minstrel * _rc;
+    class EmpowerLVAPManager *_el;
+    class Minstrel * _rc;
 
-	Slices _slices;
+    Slices _slices;
     HeadTable _head_table;
-	Vector<Slice> _active_list;
+    Vector<Slice> _active_list;
 
     int _sleepiness;
     uint32_t _capacity;
@@ -598,11 +620,11 @@ private:
 
     bool _debug;
 
-	void store(String, int, Packet *, EtherAddress, EtherAddress);
-	String list_slices();
+    void store(String, int, Packet *, EtherAddress, EtherAddress);
+    String list_slices();
 
-	static int write_handler(const String &, Element *, void *, ErrorHandler *);
-	static String read_handler(Element *, void *);
+    static int write_handler(const String &, Element *, void *, ErrorHandler *);
+    static String read_handler(Element *, void *);
 
 };
 

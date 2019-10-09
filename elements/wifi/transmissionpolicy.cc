@@ -42,6 +42,7 @@ int TransmissionPolicy::configure(Vector<String> &conf, ErrorHandler *errh) {
 	int ur_mcast_count = 3;
 	Vector<int> mcs;
 	Vector<int> ht_mcs;
+	int max_amsdu_len = 3839;
 
 	res = Args(conf, this, errh).read_m("MCS", mcs_string)
 								.read_m("HT_MCS", ht_mcs_string)
@@ -49,6 +50,7 @@ int TransmissionPolicy::configure(Vector<String> &conf, ErrorHandler *errh) {
 								.read("TX_MCAST", tx_mcast_string)
 								.read("UR_MCAST_COUNT", ur_mcast_count)
 								.read("RTS_CTS", rts_cts)
+								.read("MAX_AMSDU_LEN", max_amsdu_len)
 			                    .complete();
 
 	if (tx_mcast_string == "LEGACY") {
@@ -79,7 +81,7 @@ int TransmissionPolicy::configure(Vector<String> &conf, ErrorHandler *errh) {
 		ht_mcs.push_back(r);
 	}
 
-	_tx_policy = TxPolicyInfo(mcs, ht_mcs, no_ack, tx_mcast, ur_mcast_count, rts_cts);
+	_tx_policy = TxPolicyInfo(mcs, ht_mcs, no_ack, tx_mcast, ur_mcast_count, rts_cts, max_amsdu_len);
 	return res;
 
 }

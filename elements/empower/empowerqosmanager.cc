@@ -34,7 +34,7 @@
 CLICK_DECLS
 
 EmpowerQOSManager::EmpowerQOSManager() :
-		_el(0), _rc(0), _sleepiness(0), _capacity(500), _quantum(1470), _iface_id(0), _debug(false) {
+		_el(0), _rc(0), _sleepiness(0), _capacity(2000), _quantum(1470), _iface_id(0), _debug(false) {
 }
 
 EmpowerQOSManager::~EmpowerQOSManager() {
@@ -48,6 +48,7 @@ int EmpowerQOSManager::configure(Vector<String> &conf,
 			.read_m("RC", ElementCastArg("Minstrel"), _rc)
 			.read_m("IFACE_ID", _iface_id)
 			.read("QUANTUM", _quantum)
+			.read("CAPACITY", _capacity)
 			.read("DEBUG", _debug)
 			.complete();
 
@@ -250,8 +251,7 @@ void EmpowerQOSManager::store(String ssid, int dscp, Packet *q, EtherAddress ra,
 
 	if (sliceq->enqueue(q, ra, ta)) {
 		// check if queue was empty and no packet in buffer
-		if (sliceq->size() == 1 && _head_table.find(slice).value() == 0) {
-			sliceq->_deficit = 0;
+	    if (find(_active_list.begin(), _active_list.end(), slice) == _active_list.end() && sliceq->size() == 1 ) {
 			_active_list.push_back(slice);
 		}
 		// wake up queue
@@ -281,46 +281,32 @@ Packet * EmpowerQOSManager::pull(int) {
 	_active_list.pop_front();
 
 	SIter active = _slices.find(slice);
-	HItr head = _head_table.find(slice);
 	SliceQueue* queue = active.value();
 
-	Packet *p = 0;
-	if (head.value()) {
-		p = head.value();
-		_head_table.set(slice, 0);
+	Packet *p = queue->dequeue();
+
+	if (p) {
+	    queue->_tx_bytes += p->length();
+	    queue->_tx_packets++;
+
+	    if (find(_active_list.begin(), _active_list.end(), slice) == _active_list.end() && queue->size() > 0 ) {
+            _active_list.push_back(slice);
+        }
 	} else {
-		p = queue->dequeue();
+	    if (++_sleepiness == SLEEPINESS_TRIGGER) {
+            _empty_note.sleep();
+        }
+        return 0;
 	}
 
-	if (!p) {
-		queue->_deficit = 0;
-	} else if (_rc->estimate_usecs_wifi_packet(p) <= queue->_deficit) {
-		uint32_t deficit = _rc->estimate_usecs_wifi_packet(p);
-		queue->_deficit -= deficit;
-		queue->_deficit_used += deficit;
-		queue->_tx_bytes += p->length();
-		queue->_tx_packets++;
-		if (queue->size() > 0) {
-			_active_list.push_front(slice);
-		}
-		_lock.release_write();
-		return p;
-	} else {
-		_head_table.set(slice, p);
-		_active_list.push_back(slice);
-		queue->_deficit += queue->_quantum;
-	}
-
-	_lock.release_write();
-
-	return 0;
+    return p;
 }
 
 void EmpowerQOSManager::set_default_slice(String ssid) {
-	set_slice(ssid, 0, 12000, false, 0);
+	set_slice(ssid, 0, 12000, false, 2000, 0);
 }
 
-void EmpowerQOSManager::set_slice(String ssid, int dscp, uint32_t quantum, bool amsdu_aggregation, uint32_t scheduler) {
+void EmpowerQOSManager::set_slice(String ssid, int dscp, uint32_t quantum, bool amsdu_aggregation, uint32_t max_aggr_length, uint32_t scheduler) {
 
 	_lock.acquire_write();
 
@@ -340,18 +326,18 @@ void EmpowerQOSManager::set_slice(String ssid, int dscp, uint32_t quantum, bool 
 		}
 
 		uint32_t tr_quantum = (quantum == 0) ? _quantum : quantum;
-		SliceQueue *queue = new SliceQueue(slice, _capacity, tr_quantum, amsdu_aggregation, scheduler);
+		SliceQueue *queue = new SliceQueue(_rc, slice, _capacity, tr_quantum, amsdu_aggregation, max_aggr_length, scheduler);
 		_slices.set(slice, queue);
-		_head_table.set(slice, 0);
 	} else {
 		if (_debug) {
-			click_chatter("%{element} :: %s :: Updating slice queue for ssid %s dscp %u quantum %u A-MSDU %s scheduler %u",
+			click_chatter("%{element} :: %s :: Updating slice queue for ssid %s dscp %u quantum %u A-MSDU %s size %u scheduler %u",
 						  this,
 						  __func__,
 						  slice._ssid.c_str(),
 						  slice._dscp,
 						  quantum,
 						  amsdu_aggregation ? "yes" : "no",
+                          max_aggr_length,
 						  scheduler);
 		}
 
@@ -359,6 +345,7 @@ void EmpowerQOSManager::set_slice(String ssid, int dscp, uint32_t quantum, bool 
 		queue->_quantum = quantum;
 		queue->_amsdu_aggregation = amsdu_aggregation;
 		queue->_scheduler = scheduler;
+		queue->_max_aggr_length = max_aggr_length;
 	}
 
 	_el->send_status_slice(ssid, dscp, _iface_id);
@@ -398,14 +385,6 @@ void EmpowerQOSManager::del_slice(String ssid, int dscp) {
 	SliceQueue *sliceq = itr.value();
 	delete sliceq;
 	_slices.erase(itr);
-
-	// remove from head table
-	HItr itr2 = _head_table.find(slice);
-	Packet *p = itr2.value();
-	if (p){
-		p->kill();
-	}
-	_head_table.erase(itr2);
 
 	_lock.release_write();
 

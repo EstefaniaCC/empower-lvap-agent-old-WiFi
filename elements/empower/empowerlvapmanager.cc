@@ -378,7 +378,7 @@ void EmpowerLVAPManager::send_status_slice(String ssid, int dscp, int iface_id) 
     status->set_hwaddr(re->_hwaddr);
     status->set_channel(re->_channel);
     status->set_band(re->_band);
-    status->set_scheduler(queue->_scheduler);
+    status->set_max_aggr_length(queue->_max_aggr_length);
 
 	if (queue->_amsdu_aggregation) {
 		status->set_flags(EMPOWER_AMSDU_AGGREGATION);
@@ -617,6 +617,7 @@ void EmpowerLVAPManager::send_status_port(EtherAddress sta, int iface) {
 	status->set_channel(re->_channel);
 	status->set_band(re->_band);
 	status->set_ur_mcast_count(tx_policy->_ur_mcast_count);
+	status->set_max_amsdu_len(tx_policy->_max_amsdu_len);
 
 	uint8_t *ptr = (uint8_t *) status;
 	ptr += sizeof(struct empower_status_port);
@@ -891,6 +892,19 @@ void EmpowerLVAPManager::send_lvap_stats_response(EtherAddress lvap, uint32_t lv
 		entry->set_rate(nfo->rates[i]);
 		entry->set_prob((uint32_t) nfo->probability[i]);
 		entry->set_cur_prob((uint32_t) nfo->cur_prob[i]);
+		entry->set_throughput((uint32_t) nfo->cur_tp[i]);
+		entry->set_attempts((uint32_t) nfo->attempts[i]);
+		entry->set_success((uint32_t) nfo->successes[i]);
+		entry->set_cur_attempts((uint32_t) nfo->last_attempts[i]);
+		entry->set_cur_success((uint32_t) nfo->last_successes[i]);
+		entry->set_hist_attempts((uint32_t) nfo->hist_attempts[i]);
+		entry->set_hist_success((uint32_t) nfo->hist_successes[i]);
+		entry->set_attempts_bytes(nfo->attempts_bytes[i]);
+		entry->set_success_bytes(nfo->successes_bytes[i]);
+		entry->set_cur_attempts_bytes(nfo->last_attempts_bytes[i]);
+        entry->set_cur_success_bytes(nfo->last_successes_bytes[i]);
+        entry->set_hist_attempts_bytes(nfo->hist_attempts_bytes[i]);
+        entry->set_hist_success_bytes(nfo->hist_successes_bytes[i]);
 		ptr += sizeof(struct lvap_stats_entry);
 	}
 
@@ -1222,7 +1236,7 @@ int EmpowerLVAPManager::handle_add_vap(Packet *p, uint32_t offset) {
 		/* create default slice */
 		if (ssid != "") {
 			// TODO: for the moment assume that at worst a 1500 bytes frame can be sent in 12000 usec
-			_eqms[iface]->set_slice(ssid, 0, 12000, false, 0);
+			_eqms[iface]->set_slice(ssid, 0, 12000, false, 2000, 0);
 		}
 
 		return 0;
@@ -1378,10 +1392,10 @@ int EmpowerLVAPManager::handle_add_lvap(Packet *p, uint32_t offset) {
 	_lock.release_write();
 
 	/* create default slice */
-	if (ssid != "") {
-		// TODO: for the moment assume that at worst a 1500 bytes frame can be sent in 12000 usec
-		_eqms[iface]->set_default_slice(ssid);
-	}
+//	if (ssid != "") {
+//		// TODO: for the moment assume that at worst a 1500 bytes frame can be sent in 12000 usec
+//		_eqms[iface]->set_default_slice(ssid);
+//	}
 
 	return 0;
 
@@ -1426,6 +1440,7 @@ int EmpowerLVAPManager::handle_set_port(Packet *p, uint32_t offset) {
 
 	bool no_ack = q->flag(EMPOWER_STATUS_PORT_NOACK);
 	uint16_t rts_cts = q->rts_cts();
+	uint16_t max_amsdu_len = q->max_amsdu_len();
 	empower_tx_mcast_type tx_mcast = q->tx_mcast();
 	uint8_t ur = q->ur_mcast_count();
 	Vector<int> mcs;
@@ -1463,8 +1478,13 @@ int EmpowerLVAPManager::handle_set_port(Packet *p, uint32_t offset) {
 		   return 0;
 	}
 
-	_rcs[iface]->tx_policies()->insert(addr, mcs, ht_mcs, no_ack, tx_mcast, ur, rts_cts);
-	_rcs[iface]->forget_station(addr);
+	_rcs[iface]->tx_policies()->insert(addr, mcs, ht_mcs, no_ack, tx_mcast, ur, rts_cts, max_amsdu_len);
+
+	if (mcs.size() == 1 || ht_mcs.size() == 1) {
+	    _rcs[iface]->forget_station(addr);
+	}
+
+//	_rcs[iface]->forget_station(addr);
 
 	MinstrelDstInfo *nfo = _rcs.at(iface)->neighbors()->findp(addr);
 
@@ -1676,10 +1696,11 @@ int EmpowerLVAPManager::handle_set_slice(Packet *p, uint32_t offset) {
 	int dscp = add_slice->dscp();
 	String ssid = add_slice->ssid();
 	uint32_t quantum = add_slice->quantum();
+	uint32_t max_aggr_length = add_slice->max_aggr_length();
 	bool amsdu_aggregation = add_slice->flags(EMPOWER_AMSDU_AGGREGATION);
 	uint32_t scheduler = add_slice->scheduler();
 
-	_eqms[iface_id]->set_slice(ssid, dscp, quantum, amsdu_aggregation, scheduler);
+	_eqms[iface_id]->set_slice(ssid, dscp, quantum, amsdu_aggregation, max_aggr_length, scheduler);
 
 	return 0;
 
